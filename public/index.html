@@ -19,7 +19,6 @@
         .status { font-size: 10px; color: #444; text-align: center; padding: 5px; }
         .up { color: #ff4d4f; } .down { color: #00c853; }
         
-        /* 加载提示样式 */
         .loading-overlay {
             position: absolute;
             top: 0; left: 0; right: 0; bottom: 0;
@@ -71,7 +70,6 @@
         <div class="status" id="status"></div>
     </div>
     <script>
-        // 严格按官方市值从大到小排序
         const META = {
             'sh000001': { name: '上证指数', color: '#FFFFFF' },
             'sh000016': { name: '上证50', color: '#2ECC71' },
@@ -83,7 +81,6 @@
             'sh000688': { name: '科创50', color: '#FFA500' },
             'sz399006': { name: '创业板指', color: '#00FA9A' }
         };
-        // 默认显示全部 9 个指数
         let selected = new Set(['sh000001', 'sh000016', 'sh000300', 'sh000905', 'sh000852', 'sh932000', 'sh000680', 'sh000688', 'sz399006']);
         let currentMode = 'minute';
         let rawData = {};
@@ -94,7 +91,6 @@
             currentMode = mode;
             document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
             document.getElementById('btn-'+mode).classList.add('active');
-            showLoading();
             update();
         }
 
@@ -113,16 +109,16 @@
         }
 
         async function update() {
+            showLoading();
             try {
                 const res = await fetch(`/api/minute?mode=${currentMode}`);
                 const json = await res.json();
                 rawData = json.data;
                 render();
-                hideLoading();
                 document.getElementById('status').innerText = `${json.is_mock?'休市静止模式':'实时模式'} | 更新: ${json.updated}`;
-                if (json.is_mock) clearInterval(timer);
             } catch (e) { 
                 console.error(e);
+            } finally {
                 hideLoading();
             }
         }
@@ -132,7 +128,6 @@
             const series = [];
             let xAxis = [];
             
-            // 严格按 META 中的顺序遍历（市值从大到小）
             const orderedCodes = Object.keys(META);
             orderedCodes.forEach(code => {
                 const meta = META[code];
@@ -154,7 +149,6 @@
             
             chart.setOption({
                 backgroundColor: '#000',
-                animation: !document.getElementById('status').innerText.includes('休市'),
                 tooltip: { 
                     trigger: 'axis', 
                     backgroundColor: 'rgba(34, 34, 34, 0.9)', 
@@ -162,7 +156,6 @@
                     textStyle: { color: '#fff', fontSize: 12 },
                     confine: true,
                     formatter: function(params) {
-                        // 按当前时间点的涨幅从高到低排序
                         const sorted = params.sort((a, b) => (b.value || 0) - (a.value || 0));
                         let res = `<div style="margin-bottom:8px;font-weight:bold;border-bottom:1px solid #555;padding-bottom:5px;font-size:13px;">${params[0].name}</div>`;
                         sorted.forEach(item => {
@@ -193,7 +186,7 @@
         }
 
         update();
-        let timer = setInterval(() => { if(currentMode==='minute') update(); }, 5000);
+        setInterval(() => { if(currentMode==='minute') update(); }, 5000);
         window.onresize = () => chart.resize();
     </script>
 </body>
