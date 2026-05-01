@@ -2,230 +2,101 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-  <title>A股主要指数对比 | stock.akai-led.com</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>A股主要指数对比</title>
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
-      background: #000000;
-      color: #e0e0e0;
-      min-height: 100vh;
-    }
-
-    /* ===== 顶部栏 ===== */
-    .topbar {
-      background: #1a1a1a;
-      padding: 12px 16px 10px;
-      display: flex; align-items: center; justify-content: space-between;
-      border-bottom: 1px solid #333;
-    }
-    .topbar h1 { font-size: 16px; font-weight: 600; color: #fff; }
-    .topbar .update-time { font-size: 11px; color: #888; }
-
-    /* ===== 涨跌幅汇总 ===== */
-    .summary {
-      background: #1a1a1a;
-      padding: 10px 16px 12px;
-      border-bottom: 1px solid #333;
-    }
-    .summary-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-      gap: 8px 12px;
-    }
-    .summary-item {
-      display: flex; align-items: center; gap: 6px;
-    }
-    .s-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-    .s-name { font-size: 12px; color: #aaa; min-width: 50px; }
-    .s-pct { font-size: 13px; font-weight: 700; }
-    .up   { color: #ff4d4f; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: sans-serif; background: #000; color: #e0e0e0; }
+    .header { background: #1a1a1a; padding: 15px; border-bottom: 1px solid #333; }
+    .header h1 { font-size: 18px; text-align: center; }
+    .summary { padding: 10px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; background: #111; }
+    .item { display: flex; align-items: center; font-size: 14px; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
+    .pct { margin-left: auto; font-weight: bold; }
+    #chart { width: 100%; height: 50vh; min-height: 350px; margin-top: 10px; }
+    .status { text-align: center; font-size: 12px; color: #666; padding: 10px; }
+    .up { color: #ff4d4f; }
     .down { color: #00c853; }
-    .flat { color: #888; }
-
-    /* ===== 周期切换 ===== */
-    .period-bar {
-      background: #1a1a1a;
-      padding: 8px 16px;
-      border-bottom: 1px solid #333;
-      display: flex; gap: 8px; overflow-x: auto;
-    }
-    .period-btn {
-      padding: 6px 12px;
-      border: 1px solid #444;
-      background: transparent;
-      color: #888;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 12px;
-      white-space: nowrap;
-      transition: all 0.2s;
-    }
-    .period-btn.active {
-      background: #333;
-      border-color: #666;
-      color: #fff;
-    }
-
-    /* ===== 图表容器 ===== */
-    #chart { width: 100%; height: calc(100vh - 200px); min-height: 400px; }
-
-    /* ===== 加载状态 ===== */
-    .loading {
-      position: fixed;
-      top: 50%; left: 50%;
-      transform: translate(-50%, -50%);
-      background: rgba(0,0,0,0.8);
-      padding: 15px 30px;
-      border-radius: 8px;
-      color: #fff;
-      font-size: 14px;
-      z-index: 9999;
-      display: none;
-    }
   </style>
 </head>
 <body>
-  <div class="topbar">
-    <h1>📊 A股主要指数对比</h1>
-    <div class="update-time" id="updateTime">正在初始化...</div>
+  <div class="header">
+    <h1 id="title">A股主要指数对比 (5s刷新)</h1>
   </div>
-
-  <div class="summary" id="summary"></div>
-  <div class="period-bar" id="periodBar"></div>
+  <div class="summary" id="summary">加载中...</div>
   <div id="chart"></div>
-  <div class="loading" id="loading">加载中...</div>
+  <div class="status" id="status">正在连接数据源...</div>
 
   <script>
-    // ===================== 配置 (同花顺风格配色) =====================
     const INDICES = {
-      'sh000001': { name: '上证指数', color: '#FFFFFF' }, // 白色
-      'sh000300': { name: '沪深300', color: '#4B9EFF' }, // 蓝色
-      'sh000016': { name: '上证50', color: '#2ECC71' },  // 绿色
-      'sh000905': { name: '中证500', color: '#FFD700' }, // 黄色
-      'sh000852': { name: '中证1000', color: '#FF69B4' }, // 粉色
-      'sh932000': { name: '中证2000', color: '#9370DB' }, // 紫色
-      'sh000688': { name: '科创综指', color: '#00FFFF' }, // 青色
-      'sz399006': { name: '创业板指', color: '#00FA9A' }, // 浅绿
+      'sh000001': { name: '上证指数', color: '#FFFFFF' },
+      'sh000300': { name: '沪深300', color: '#4B9EFF' },
+      'sh000016': { name: '上证50', color: '#2ECC71' },
+      'sh000905': { name: '中证500', color: '#FFD700' },
+      'sh000852': { name: '中证1000', color: '#FF69B4' },
+      'sh932000': { name: '中证2000', color: '#9370DB' },
+      'sh000688': { name: '科创综指', color: '#00FFFF' },
+      'sz399006': { name: '创业板指', color: '#00FA9A' }
     };
 
-    const PERIODS = [
-      { key: 'minute', label: '分时', default: true },
-      { key: '5min', label: '5分' },
-      { key: '30min', label: '30分' },
-      { key: 'daily_10', label: '10日' },
-      { key: 'daily_60', label: '3月' },
-      { key: 'daily_250', label: '1年' },
-    ];
+    let myChart = echarts.init(document.getElementById('chart'));
 
-    let chart = echarts.init(document.getElementById('chart'), null, { renderer: 'canvas' });
-    let currentPeriod = 'minute';
-    let allData = {};
-
-    // ===================== API 调用 =====================
-    async function fetchData(period, isSilent = false) {
-      if (!isSilent) document.getElementById('loading').style.display = 'block';
+    async function update() {
       try {
-        let url = period === 'minute' ? '/api/minute' : `/api/kline?period=${period.split('_')[0]}&days=${period.split('_')[1] || 60}`;
-        const response = await fetch(url);
-        const result = await response.json();
+        const res = await fetch('/api/minute');
+        const json = await res.json();
+        if (!json.ok) throw new Error('API Error');
 
-        if (result.ok) {
-          allData = result.data;
-          updateSummary();
-          updateChart();
-          document.getElementById('updateTime').textContent = `更新: ${result.updated || new Date().toLocaleTimeString()}`;
+        const data = json.data;
+        const summary = document.getElementById('summary');
+        let html = '';
+        const series = [];
+        let xAxis = [];
+
+        for (const [code, info] of Object.entries(INDICES)) {
+          const list = data[code] || [];
+          if (list.length > 0) {
+            const last = list[list.length - 1];
+            const cls = last.pct >= 0 ? 'up' : 'down';
+            html += `<div class="item">
+              <div class="dot" style="background:${info.color}"></div>
+              <span>${info.name}</span>
+              <span class="pct ${cls}">${last.pct > 0 ? '+' : ''}${last.pct}%</span>
+            </div>`;
+
+            if (xAxis.length === 0) xAxis = list.map(i => i.time);
+            series.push({
+              name: info.name,
+              type: 'line',
+              data: list.map(i => i.pct),
+              showSymbol: false,
+              lineStyle: { width: 2 },
+              itemStyle: { color: info.color }
+            });
+          }
         }
-      } catch (error) {
-        console.error('Fetch error:', error);
-      } finally {
-        if (!isSilent) document.getElementById('loading').style.display = 'none';
-      }
-    }
+        summary.innerHTML = html;
 
-    // ===================== 更新汇总 =====================
-    function updateSummary() {
-      const summary = document.getElementById('summary');
-      let html = '<div class="summary-grid">';
-      for (const [symbol, info] of Object.entries(INDICES)) {
-        const data = allData[symbol];
-        if (!data || data.length === 0) continue;
-        const lastPct = data[data.length - 1].pct || 0;
-        const className = lastPct > 0 ? 'up' : lastPct < 0 ? 'down' : 'flat';
-        html += `
-          <div class="summary-item">
-            <div class="s-dot" style="background: ${info.color}"></div>
-            <div class="s-name">${info.name}</div>
-            <div class="s-pct ${className}">${lastPct > 0 ? '+' : ''}${lastPct.toFixed(2)}%</div>
-          </div>
-        `;
-      }
-      summary.innerHTML = html + '</div>';
-    }
-
-    // ===================== 更新图表 =====================
-    function updateChart() {
-      const series = [];
-      let xAxisData = [];
-      let maxLen = 0;
-      let baseSymbol = '';
-
-      for (const symbol of Object.keys(INDICES)) {
-        if (allData[symbol] && allData[symbol].length > maxLen) {
-          maxLen = allData[symbol].length;
-          baseSymbol = symbol;
-        }
-      }
-      if (baseSymbol) xAxisData = allData[baseSymbol].map(item => item.time);
-
-      for (const [symbol, info] of Object.entries(INDICES)) {
-        const data = allData[symbol];
-        if (!data) continue;
-        series.push({
-          name: info.name,
-          type: 'line',
-          data: data.map(item => item.pct),
-          smooth: true,
-          symbol: 'none',
-          lineStyle: { width: 1.5 },
-          color: info.color,
+        myChart.setOption({
+          backgroundColor: '#000',
+          tooltip: { trigger: 'axis' },
+          grid: { top: 20, left: 40, right: 10, bottom: 30 },
+          xAxis: { type: 'category', data: xAxis, axisLabel: { color: '#666', fontSize: 10 } },
+          yAxis: { type: 'value', axisLabel: { color: '#666', formatter: '{value}%' }, splitLine: { lineStyle: { color: '#222' } } },
+          series: series
         });
+
+        document.getElementById('status').innerText = `更新时间: ${json.updated} ${json.is_mock ? '(休市演示数据)' : ''}`;
+      } catch (e) {
+        document.getElementById('status').innerText = '数据加载失败，正在重试...';
+        console.error(e);
       }
-
-      chart.setOption({
-        backgroundColor: '#000000',
-        tooltip: { trigger: 'axis', backgroundColor: 'rgba(0,0,0,0.8)', textStyle: { color: '#fff' } },
-        legend: { top: 'bottom', textStyle: { color: '#888', fontSize: 10 }, icon: 'circle' },
-        grid: { left: '40', right: '20', top: '20', bottom: '60', containLabel: true },
-        xAxis: { type: 'category', data: xAxisData, axisLine: { lineStyle: { color: '#333' } }, axisLabel: { color: '#666', fontSize: 10 } },
-        yAxis: { type: 'value', axisLabel: { color: '#666', formatter: '{value}%' }, splitLine: { lineStyle: { color: '#1a1a1a' } } },
-        series: series
-      }, true);
     }
 
-    // ===================== 初始化 =====================
-    function init() {
-      const bar = document.getElementById('periodBar');
-      PERIODS.forEach(p => {
-        const btn = document.createElement('button');
-        btn.className = `period-btn ${p.default ? 'active' : ''}`;
-        btn.textContent = p.label;
-        btn.onclick = () => {
-          document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
-          btn.classList.add('active');
-          currentPeriod = p.key;
-          fetchData(p.key);
-        };
-        bar.appendChild(btn);
-      });
-      fetchData('minute');
-      setInterval(() => { if (currentPeriod === 'minute') fetchData('minute', true); }, 5000);
-    }
-
-    window.addEventListener('load', init);
-    window.addEventListener('resize', () => chart.resize());
+    update();
+    setInterval(update, 5000);
+    window.onresize = () => myChart.resize();
   </script>
 </body>
 </html>
