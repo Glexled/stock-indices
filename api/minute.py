@@ -50,8 +50,8 @@ def combined_api():
             # 日线历史接口
             url = f"https://push2his.eastmoney.com/api/qt/stock/kline/get?secid={config['secid']}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=60"
         else:
-            # 分时实时接口
-            url = f"https://push2.eastmoney.com/api/qt/stock/trends2/get?secid={config['secid']}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58"
+            # 分时实时接口 (改为抓取5日数据)
+            url = f"https://push2.eastmoney.com/api/qt/stock/trends2/get?secid={config['secid']}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&ndays=5"
         
         try:
             # 设置较短超时，确保极速响应
@@ -68,8 +68,17 @@ def combined_api():
                 else:
                     trends = data.get('trends', [])
                     if trends:
+                        # 5日模式下，以第一天的昨收价为基准计算累计涨幅
                         pre_close = data['preClose']
-                        final_data[symbol] = [{'time': t.split(',')[0].split(' ')[1][:5], 'pct': round((float(t.split(',')[2])/pre_close-1)*100, 2)} for t in trends]
+                        final_data[symbol] = []
+                        for t in trends:
+                            parts = t.split(',')
+                            # 提取日期和时间，如 "2024-04-30 09:30"
+                            full_time = parts[0] 
+                            price = float(parts[2])
+                            # 计算相对于5日首个基准价的累计涨幅
+                            pct = round((price / pre_close - 1) * 100, 2)
+                            final_data[symbol].append({'time': full_time, 'pct': pct})
                         any_success = True
         except Exception as e:
             print(f"Error fetching {symbol}: {e}")

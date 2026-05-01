@@ -48,7 +48,7 @@
 <body>
     <div class="container">
         <div class="nav">
-            <button class="nav-btn active" id="btn-minute" onclick="setMode('minute')">分时对比</button>
+            <button class="nav-btn active" id="btn-minute" onclick="setMode('minute')">5日对比</button>
             <button class="nav-btn" id="btn-daily" onclick="setMode('daily')">日线历史</button>
         </div>
         <div id="grid" class="indices-grid"></div>
@@ -163,7 +163,18 @@
                 xAxis: { 
                     type: 'category', 
                     data: xAxis, 
-                    axisLabel: { color: '#555', fontSize: 10, interval: currentMode==='daily'?Math.floor(xAxis.length/5):60 },
+                    axisLabel: { 
+                        color: '#555', 
+                        fontSize: 10, 
+                        interval: currentMode==='daily' ? Math.floor(xAxis.length/5) : Math.floor(xAxis.length/5),
+                        formatter: function(value) {
+                            if (currentMode === 'minute') {
+                                // 5日模式下，显示日期或关键时间点
+                                return value.includes('09:30') ? value.split(' ')[0].substring(5) : '';
+                            }
+                            return value;
+                        }
+                    },
                     axisLine: { lineStyle: { color: '#222' } }
                 },
                 yAxis: { 
