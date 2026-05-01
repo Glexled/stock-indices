@@ -85,6 +85,7 @@
       color: #fff;
       font-size: 14px;
       z-index: 9999;
+      display: none;
     }
   </style>
 </head>
@@ -129,14 +130,13 @@
     let allData = {};
 
     // ===================== API 调用 =====================
-    async function fetchData(period) {
-      const loading = document.getElementById('loading');
-      loading.style.display = 'block';
+    async function fetchData(period, isSilent = false) {
+      if (!isSilent) {
+        document.getElementById('loading').style.display = 'block';
+      }
 
       try {
         let url = '/api/minute';
-        let params = {};
-
         if (period === 'minute') {
           url = '/api/minute';
         } else if (period.startsWith('daily')) {
@@ -154,13 +154,13 @@
           updateSummary(result.realtime);
           updateChart(period);
           document.getElementById('updateTime').textContent = `更新: ${result.updated || new Date().toLocaleTimeString()}`;
-        } else {
-          console.error('API error:', result.error);
         }
       } catch (error) {
         console.error('Fetch error:', error);
       } finally {
-        loading.style.display = 'none';
+        if (!isSilent) {
+          document.getElementById('loading').style.display = 'none';
+        }
       }
     }
 
@@ -195,7 +195,6 @@
       const series = [];
       let xAxisData = [];
 
-      // 构建 X 轴（时间）：寻找最长的时间序列作为基准
       let maxLen = 0;
       let baseSymbol = '';
       for (const symbol of Object.keys(INDICES)) {
@@ -208,7 +207,6 @@
         xAxisData = allData[baseSymbol].map(item => item.time);
       }
 
-      // 构建数据系列
       for (const [symbol, info] of Object.entries(INDICES)) {
         const data = allData[symbol];
         if (!data) continue;
@@ -220,7 +218,6 @@
           data: yData,
           smooth: true,
           lineStyle: { width: 2 },
-          itemStyle: { borderWidth: 0 },
           symbolSize: 0,
           color: info.color,
         });
@@ -263,7 +260,7 @@
         series: series,
       };
 
-      chart.setOption(option);
+      chart.setOption(option, true);
     }
 
     // ===================== 初始化 =====================
@@ -287,15 +284,14 @@
     window.addEventListener('load', () => {
       initPeriodBar();
       fetchData('minute');
-      // 分时数据每60秒自动刷新
+      // 分时数据每5秒自动刷新
       setInterval(() => {
         if (currentPeriod === 'minute') {
-          fetchData('minute');
+          fetchData('minute', true);
         }
-      }, 60000);
+      }, 5000);
     });
 
-    // 响应式调整
     window.addEventListener('resize', () => {
       chart.resize();
     });
