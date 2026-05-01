@@ -6,23 +6,25 @@
     <title>A股指数对比</title>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <style>
-        body { margin: 0; padding: 0; background-color: #000; color: #fff; font-family: sans-serif; overflow: hidden; }
+        * { box-sizing: border-box; }
+        body { margin: 0; padding: 0; background-color: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; overflow: hidden; }
         .container { display: flex; flex-direction: column; height: 100vh; width: 100vw; }
         .nav { display: flex; background: #111; padding: 5px; border-bottom: 1px solid #222; flex-shrink: 0; }
-        .nav-btn { flex: 1; padding: 10px; text-align: center; font-size: 14px; color: #888; border: none; background: none; cursor: pointer; }
+        .nav-btn { flex: 1; padding: 12px; text-align: center; font-size: 14px; color: #888; border: none; background: none; cursor: pointer; outline: none; }
         .nav-btn.active { color: #fff; font-weight: bold; border-bottom: 2px solid #ff4d4f; }
-        .indices-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; padding: 10px; background: #080808; flex-shrink: 0; }
-        .index-item { display: flex; justify-content: space-between; background: #161616; padding: 8px 10px; border-radius: 4px; font-size: 12px; cursor: pointer; opacity: 0.3; transition: opacity 0.2s; }
-        .index-item.active { opacity: 1; }
-        .index-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
-        #chart { flex: 1; width: 100%; min-height: 0; position: relative; }
-        .status { font-size: 10px; color: #444; text-align: center; padding: 5px; flex-shrink: 0; }
+        .indices-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; padding: 10px; background: #080808; flex-shrink: 0; }
+        .index-item { display: flex; justify-content: space-between; align-items: center; background: #161616; padding: 10px; border-radius: 4px; font-size: 12px; cursor: pointer; opacity: 0.3; transition: opacity 0.2s; border: 1px solid transparent; }
+        .index-item.active { opacity: 1; border-color: #333; }
+        .index-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+        #chart-container { flex: 1; width: 100%; position: relative; min-height: 200px; background: #000; }
+        #chart { width: 100%; height: 100%; }
+        .status { font-size: 10px; color: #444; text-align: center; padding: 8px; flex-shrink: 0; background: #000; }
         .up { color: #ff4d4f; } .down { color: #00c853; }
         
         .loading-overlay {
             position: absolute;
             top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0, 0, 0, 0.8);
+            background: rgba(0, 0, 0, 0.9);
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -37,10 +39,10 @@
             border-top: 2px solid #ff4d4f;
             border-radius: 50%;
             animation: spin 1s linear infinite;
-            margin-bottom: 10px;
+            margin-bottom: 12px;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .loading-text { font-size: 12px; color: #888; }
+        .loading-text { font-size: 12px; color: #888; letter-spacing: 1px; }
     </style>
 </head>
 <body>
@@ -50,13 +52,14 @@
             <button class="nav-btn" id="btn-daily" onclick="setMode('daily')">日线历史</button>
         </div>
         <div id="grid" class="indices-grid"></div>
-        <div id="chart">
+        <div id="chart-container">
+            <div id="chart"></div>
             <div class="loading-overlay" id="loading">
                 <div class="spinner"></div>
-                <div class="loading-text">正在加载行情数据...</div>
+                <div class="loading-text">正在同步实时行情...</div>
             </div>
         </div>
-        <div class="status" id="status">正在初始化...</div>
+        <div class="status" id="status">系统初始化中...</div>
     </div>
     <script>
         const META = {
@@ -73,7 +76,12 @@
         let selected = new Set(Object.keys(META));
         let currentMode = 'minute';
         let rawData = {};
-        const chart = echarts.init(document.getElementById('chart'));
+        let chart = null;
+
+        function initChart() {
+            if (chart) chart.dispose();
+            chart = echarts.init(document.getElementById('chart'));
+        }
 
         function setMode(mode) {
             if (currentMode === mode) return;
@@ -101,13 +109,14 @@
                 }
             } catch (e) {
                 console.error(e);
-                document.getElementById('status').innerText = '网络请求失败，请稍后重试';
+                document.getElementById('status').innerText = '数据同步失败，请检查网络';
             } finally {
                 document.getElementById('loading').classList.add('hidden');
             }
         }
 
         function render() {
+            if (!chart) initChart();
             let gridHtml = '';
             const series = [];
             let xAxis = [];
@@ -168,9 +177,10 @@
             }, true);
         }
 
+        initChart();
         update();
         setInterval(() => { if(currentMode==='minute') update(); }, 5000);
-        window.onresize = () => chart.resize();
+        window.addEventListener('resize', () => { if(chart) chart.resize(); });
     </script>
 </body>
 </html>
