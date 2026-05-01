@@ -31,18 +31,19 @@
         <div class="status" id="status"></div>
     </div>
     <script>
+        // 严格按市值从大到小排序
         const META = {
             'sh000001': { name: '上证指数', color: '#FFFFFF' },
-            'sh000300': { name: '沪深300', color: '#4B9EFF' },
             'sh000016': { name: '上证50', color: '#2ECC71' },
+            'sh000300': { name: '沪深300', color: '#4B9EFF' },
             'sh000905': { name: '中证500', color: '#FFD700' },
             'sh000852': { name: '中证1000', color: '#FF69B4' },
             'sh932000': { name: '中证2000', color: '#9370DB' },
             'sh000688': { name: '科创综指', color: '#00FFFF' },
             'sz399006': { name: '创业板指', color: '#00FA9A' }
         };
-        // 默认只显示核心 3 条
-        let selected = new Set(['sh000001', 'sh000300', 'sh000852']);
+        // 默认显示大中盘核心指数
+        let selected = new Set(['sh000001', 'sh000016', 'sh000300', 'sh000905']);
         let currentMode = 'minute';
         let rawData = {};
         const chart = echarts.init(document.getElementById('chart'));
@@ -67,7 +68,6 @@
                 rawData = json.data;
                 render();
                 document.getElementById('status').innerText = `${json.is_mock?'休市静止模式':'实时模式'} | 更新: ${json.updated}`;
-                // 如果是休市模式，降低刷新率为 10 分钟，避免无谓跳动
                 if (json.is_mock) clearInterval(timer);
             } catch (e) {}
         }
@@ -76,7 +76,9 @@
             let gridHtml = '';
             const series = [];
             let xAxis = [];
-            for (const [code, meta] of Object.entries(META)) {
+            // 保持 META 的 key 顺序渲染
+            Object.keys(META).forEach(code => {
+                const meta = META[code];
                 const points = rawData[code] || [];
                 const last = points[points.length-1] || {pct:0};
                 gridHtml += `<div class="index-item ${selected.has(code)?'active':''}" onclick="toggle('${code}')">
@@ -90,12 +92,12 @@
                         showSymbol: false, smooth: true, itemStyle: { color: meta.color }, lineStyle: { width: 2 }
                     });
                 }
-            }
+            });
             document.getElementById('grid').innerHTML = gridHtml;
             chart.setOption({
                 backgroundColor: '#000',
                 animation: !document.getElementById('status').innerText.includes('休市'),
-                tooltip: { trigger: 'axis', backgroundColor: '#222', textStyle: { color: '#fff', fontSize: 11 } },
+                tooltip: { trigger: 'axis', backgroundColor: '#222', textStyle: { color: '#fff', fontSize: 11 }, order: 'valueDesc' },
                 grid: { top: 20, left: 45, right: 15, bottom: 25 },
                 xAxis: { type: 'category', data: xAxis, axisLabel: { color: '#555', fontSize: 10, interval: currentMode==='daily'?Math.floor(xAxis.length/5):60 } },
                 yAxis: { type: 'value', axisLabel: { color: '#555', fontSize: 10, formatter: '{value}%' }, splitLine: { lineStyle: { color: '#111' } }, scale: true },

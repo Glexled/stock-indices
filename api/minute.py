@@ -3,28 +3,28 @@ import json
 import random
 from datetime import datetime
 import requests
+from collections import OrderedDict
 
 app = Flask(__name__)
 
-INDICES_CONFIG = {
-    'sh000001': {'name': '上证指数', 'secid': '1.000001'},
-    'sh000300': {'name': '沪深300', 'secid': '1.000300'},
-    'sh000016': {'name': '上证50', 'secid': '1.000016'},
-    'sh000905': {'name': '中证500', 'secid': '1.000905'},
-    'sh000852': {'name': '中证1000', 'secid': '1.000852'},
-    'sh932000': {'name': '中证2000', 'secid': '1.932000'},
-    'sh000688': {'name': '科创综指', 'secid': '1.000688'},
-    'sz399006': {'name': '创业板指', 'secid': '0.399006'}
-}
+# 严格按市值从大到小排序
+INDICES_CONFIG = OrderedDict([
+    ('sh000001', {'name': '上证指数', 'secid': '1.000001'}),
+    ('sh000016', {'name': '上证50', 'secid': '1.000016'}),
+    ('sh000300', {'name': '沪深300', 'secid': '1.000300'}),
+    ('sh000905', {'name': '中证500', 'secid': '1.000905'}),
+    ('sh000852', {'name': '中证1000', 'secid': '1.000852'}),
+    ('sh932000', {'name': '中证2000', 'secid': '1.932000'}),
+    ('sh000688', {'name': '科创综指', 'secid': '1.000688'}),
+    ('sz399006', {'name': '创业板指', 'secid': '0.399006'})
+])
 
 def get_static_fallback():
-    """生成固定的演示数据，不再随机跳动"""
     result = {}
     times = [f"{h:02d}:{m:02d}" for h in range(9, 16) for m in range(0, 60) if ("09:30" <= f"{h:02d}:{m:02d}" <= "11:30") or ("13:00" <= f"{h:02d}:{m:02d}" <= "15:00")]
     for i, symbol in enumerate(INDICES_CONFIG.keys()):
-        # 为每个指数生成一条固定但不重合的平滑曲线
-        base = (i - 4) * 0.2
-        result[symbol] = [{'time': t, 'pct': round(base + (j/len(times))*0.5, 2)} for j, t in enumerate(times)]
+        base = (4 - i) * 0.15 # 模拟不同市值的不同走势
+        result[symbol] = [{'time': t, 'pct': round(base + (j/len(times))*0.3, 2)} for j, t in enumerate(times)]
     return result
 
 @app.route('/api/minute')
@@ -44,9 +44,10 @@ def combined_api():
             data = resp.get('data')
             if mode == 'daily':
                 klines = data.get('klines', [])
-                base_price = float(klines[0].split(',')[2])
-                final_data[symbol] = [{'time': k.split(',')[0], 'pct': round((float(k.split(',')[2])/base_price-1)*100, 2)} for k in klines]
-                any_success = True
+                if klines:
+                    base_price = float(klines[0].split(',')[2])
+                    final_data[symbol] = [{'time': k.split(',')[0], 'pct': round((float(k.split(',')[2])/base_price-1)*100, 2)} for k in klines]
+                    any_success = True
             else:
                 trends = data.get('trends', [])
                 if trends:
