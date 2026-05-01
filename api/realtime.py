@@ -1,13 +1,11 @@
-#!/usr/bin/env python3
-"""
-Vercel Serverless Function: 获取实时行情
-"""
+from flask import Flask, jsonify
 import json
 import re
 from datetime import datetime
 import requests
 
-# ===================== 指数配置 =====================
+app = Flask(__name__)
+
 INDICES = {
     'sh000001': '上证指数',
     'sh000300': '沪深300',
@@ -44,17 +42,10 @@ def fetch_realtime(symbols):
     except: pass
     return result
 
-def handler(request):
+@app.route('/api/realtime')
+def get_realtime():
     try:
         data = fetch_realtime(list(INDICES.keys()))
-        return {
-            'statusCode': 200,
-            'headers': {'Content-Type': 'application/json'},
-            'body': json.dumps({'ok': True, 'data': data, 'updated': datetime.now().strftime('%H:%M:%S')})
-        }
+        return jsonify({'ok': True, 'data': data, 'updated': datetime.now().strftime('%H:%M:%S')})
     except Exception as e:
-        return {
-            'statusCode': 500,
-            'headers': {'Content-Type': 'application/json'},
-            'body': json.dumps({'ok': False, 'error': str(e)})
-        }
+        return jsonify({'ok': False, 'error': str(e)}), 500

@@ -1,14 +1,11 @@
-#!/usr/bin/env python3
-"""
-Vercel Serverless Function: 获取分时数据 (支持 8 大指数)
-"""
+from flask import Flask, jsonify
 import json
-import time
 import re
 from datetime import datetime
 import requests
 
-# ===================== 指数配置 =====================
+app = Flask(__name__)
+
 INDICES = {
     'sh000001': '上证指数',
     'sh000300': '沪深300',
@@ -26,7 +23,6 @@ HEADERS = {
 }
 
 def fetch_minute_data(symbol):
-    # 中证2000 (sh932000) 优先尝试东方财富接口
     if symbol == 'sh932000':
         try:
             dfcf_url = "https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=1.932000&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58"
@@ -34,10 +30,9 @@ def fetch_minute_data(symbol):
             d = r.json()
             trends = d.get('data', {}).get('trends', [])
             if trends:
-                return [{'time': t.split(',')[0].split(' ')[1], 'price': float(t.split(',')[2])} for t in trends]
+                return [{'time': t.split(',')[0].split(' ')[1][:5], 'price': float(t.split(',')[2])} for t in trends]
         except: pass
 
-    # 其他指数使用腾讯接口
     url = f'https://web.ifzq.gtimg.cn/appstock/app/minute/query?code={symbol}'
     try:
         r = requests.get(url, headers=HEADERS, timeout=5)
@@ -66,11 +61,7 @@ def fetch_realtime(symbols):
             code = m.group(1)
             parts = m.group(2).split(',')
             if len(parts) > 5 and parts[0]:
-                result[code] = {
-                    'name': parts[0],
-                    'prevClose': float(parts[2]) if parts[2] else None,
-                    'current': float(parts[3]) if parts[3] else None,
-                }
+                result[code] = {'prevClose': float(parts[2]) if parts[2] else None}
     except: pass
     return result
 
@@ -80,7 +71,8 @@ def calc_pct(data, prev_close=None):
     if not base: return data
     return [{**item, 'pct': round((item['price'] / base - 1) * 100, 3)} for item in data]
 
-def handler(request):
+@app.route('/api/minute')
+def get_minute():
     try:
         rt = fetch_realtime(list(INDICES.keys()))
         result = {}
@@ -90,22 +82,10 @@ def handler(request):
                 prev_close = rt.get(symbol, {}).get('prevClose')
                 result[symbol] = calc_pct(data, prev_close)
 
-        return {
-            'statusCode': 200,
-            'headers': {
-                'Content-Type': 'application/json',
-                'Cache-Control': 'no-cache, no-store, must-revalidate'
-            },
-            'body': json.dumps({
-                'ok': True,
-                'data': result,
-                'realtime': rt,
-                'updated': datetime.now().strftime('%H:%M:%S'),
-            })
-        }
+        return jsonify({
+            'ok': True,
+            'data': result,
+            'updated': datetime.now().strftime('%H:%M:%S'),
+        })
     except Exception as e:
-        return {
-            'statusCode': 500,
-            'headers': {'Content-Type': 'application/json'},
-            'body': json.dumps({'ok': False, 'error': str(e)})
-        }
+        return jsonify({'ok': False, 'error': str(e)}), 500

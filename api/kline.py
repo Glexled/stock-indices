@@ -1,14 +1,11 @@
-#!/usr/bin/env python3
-"""
-Vercel Serverless Function: 获取K线数据
-"""
+from flask import Flask, request, jsonify
 import json
-import time
 import re
 from datetime import datetime
 import requests
 
-# ===================== 指数配置 =====================
+app = Flask(__name__)
+
 INDICES = {
     'sh000001': '上证指数',
     'sh000300': '沪深300',
@@ -57,18 +54,11 @@ def calc_pct(data, prev_close=None):
     if not base: return data
     return [{**item, 'pct': round((item['price'] / base - 1) * 100, 3)} for item in data]
 
-# Vercel 要求的入口函数必须命名为 handler 或使用 Flask app
-def handler(request):
+@app.route('/api/kline')
+def get_kline():
     try:
-        # 解析参数 (Vercel request 对象可能通过 query 参数传递)
-        period = 'daily'
-        days = 60
-        
-        # 尝试从 query 参数获取
-        if hasattr(request, 'args'):
-            period = request.args.get('period', 'daily')
-            days = int(request.args.get('days', 60))
-
+        period = request.args.get('period', 'daily')
+        days = int(request.args.get('days', 60))
         scale_map = {'5min': 5, '30min': 30, 'daily': 240}
         scale = scale_map.get(period, 240)
         datalen = days + 20 if period == 'daily' else days * 8 + 20
@@ -82,18 +72,10 @@ def handler(request):
                 prev_close = rt.get(symbol, {}).get('prevClose')
                 result[symbol] = calc_pct(data, prev_close)
 
-        return {
-            'statusCode': 200,
-            'headers': {'Content-Type': 'application/json'},
-            'body': json.dumps({
-                'ok': True,
-                'data': result,
-                'updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            })
-        }
+        return jsonify({
+            'ok': True,
+            'data': result,
+            'updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        })
     except Exception as e:
-        return {
-            'statusCode': 500,
-            'headers': {'Content-Type': 'application/json'},
-            'body': json.dumps({'ok': False, 'error': str(e)})
-        }
+        return jsonify({'ok': False, 'error': str(e)}), 500
