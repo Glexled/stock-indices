@@ -160,7 +160,7 @@
         }
 
         update();
-        refreshTimer = setInterval(function() { if(currentMode==='minute') update(); }, 5000);
+        refreshTimer = setInterval(function() { if(currentMode==='minute') update(); }, 20000);
         window.addEventListener('resize', function() { chart.resize(); });
     </script>
 </body>
