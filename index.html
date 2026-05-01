@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>大小盘涨跌对比 | stock.akai-led.com</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: #13131f;
+      color: #e0e0e0;
+      min-height: 100vh;
+    }
+
+    /* ===== 顶部栏 ===== */
+    .topbar {
+      background: #1a1a2e;
+      padding: 12px 16px 10px;
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid #252540;
+    }
+    .topbar h1 { font-size: 16px; font-weight: 600; color: #fff; }
+    .topbar .update-time { font-size: 11px; color: #555570; }
+
+    /* ===== 涨跌幅汇总 ===== */
+    .summary {
+      background: #1a1a2e;
+      padding: 10px 16px 12px;
+      border-bottom: 1px solid #252540;
+    }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px 0;
+    }
+    .summary-item {
+      display: flex; align-items: center; gap: 6px;
+    }
+    .s-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .s-name { font-size: 11px; color: #666880; min-width: 52px; }
+    .s-pct { font-size: 14px; font-weight: 700; }
+    .up   { color: #ff4d4f; }
+    .down { color: #00c853; }
+    .flat { color: #666880; }
+
+    /* ===== 周期切换 ===== */
+    .period-bar {
+      background: #1a1a2e;
+      padding: 8px 16px;
+      display: flex; align-items: center; gap: 0;
+      border-bottom: 1px solid #252540;
+    }
+    .period-btn {
+      flex: 1; text-align: center;
+      padding: 5px 0;
+      border: none; background: transparent;
+      color: #666880; font-size: 13px; cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all .2s;
+    }
+    .period-btn.active {
+      color: #ffffff; font-weight: 600;
+      border-bottom-color: #4d8fff;
+    }
+
+    /* ===== 日线时间范围（仅日线模式显示）===== */
+    .range-bar {
+      background: #1a1a2e;
+      padding: 6px 16px;
+      display: flex; align-items: center; gap: 6px;
+      border-bottom: 1px solid #252540;
+      overflow-x: auto; display: none;
+    }
+    .range-bar::-webkit-scrollbar { display: none; }
+    .range-btn {
+      padding: 3px 11px; border-radius: 12px;
+      border: 1px solid #2a2a40; background: transparent;
+      color: #666880; font-size: 11px; cursor: pointer; white-space: nowrap;
+      transition: all .2s;
+    }
+    .range-btn.active {
+      background: #2a2a50; border-color: #4a4a80; color: #fff; font-weight: 600;
+    }
+
+    /* ===== 图表 ===== */
+    .chart-wrap {
+      background: #1a1a2e;
+      position: relative;
+    }
+    #main-chart { width: 100%; height: 360px; }
+    .state-box {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      height: 360px; background: #1a1a2e; gap: 10px;
+    }
+    .spinner {
+      width: 30px; height: 30px;
+      border: 3px solid #252540; border-top-color: #4d8fff;
+      border-radius: 50%; animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .state-text { color: #555570; font-size: 12px; }
+    .error-box {
+      display: none; flex-direction: column;
+      align-items: center; justify-content: center;
+      height: 360px; background: #1a1a2e;
+      color: #ff4d4f; font-size: 13px; gap: 10px;
+    }
+    .retry-btn {
+      padding: 5px 16px; border-radius: 12px;
+      border: 1px solid #ff4d4f; background: transparent;
+      color: #ff4d4f; font-size: 12px; cursor: pointer;
+    }
+    .watermark {
+      position: absolute; bottom: 8px; right: 12px;
+      font-size: 10px; color: rgba(255,255,255,0.06);
+      pointer-events: none; font-style: italic;
+    }
+
+    /* ===== 指数详情列表 ===== */
+    .index-list { background: #1a1a2e; margin-top: 2px; }
+    .list-header {
+      display: flex; align-items: center;
+      padding: 8px 16px;
+      border-bottom: 1px solid #252540;
+      font-size: 11px; color: #555570;
+    }
+    .lh-name { flex: 1; }
+    .lh-pct  { width: 80px; text-align: right; }
+    .lh-chg  { width: 70px; text-align: right; }
+
+    .index-row {
+      display: flex; align-items: center;
+      padding: 11px 16px;
+      border-bottom: 1px solid #1e1e30;
+    }
+    .index-row:last-child { border-bottom: none; }
+    .ir-bar { width: 3px; height: 26px; border-radius: 2px; margin-right: 10px; flex-shrink: 0; }
+    .ir-info { flex: 1; }
+    .ir-name { font-size: 14px; color: #d0d0e0; font-weight: 500; }
+    .ir-code { font-size: 10px; color: #444460; margin-top: 1px; }
+    .ir-pct  { width: 80px; text-align: right; font-size: 17px; font-weight: 700; }
+    .ir-chg  { width: 70px; text-align: right; font-size: 11px; color: #555570; }
+
+    /* ===== 底部 ===== */
+    footer {
+      text-align: center; padding: 12px 16px;
+      font-size: 10px; color: #333350; background: #13131f;
+    }
+
+    @media (min-width: 768px) {
+      body { max-width: 500px; margin: 0 auto; box-shadow: 0 0 40px rgba(0,0,0,.5); }
+      #main-chart, .state-box, .error-box { height: 420px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>大小盘涨跌对比</h1>
+  <div class="update-time" id="update-time">--</div>
+</div>
+
+<!-- 涨跌幅汇总 -->
+<div class="summary">
+  <div class="summary-grid" id="summary-grid"></div>
+</div>
+
+<!-- 周期切换 -->
+<div class="period-bar">
+  <button class="period-btn active" data-period="minute">分时</button>
+  <button class="period-btn" data-period="5min">5分钟</button>
+  <button class="period-btn" data-period="30min">30分钟</button>
+  <button class="period-btn" data-period="daily">日线</button>
+</div>
+
+<!-- 日线时间范围 -->
+<div class="range-bar" id="range-bar">
+  <button class="range-btn" data-days="10">10日</button>
+  <button class="range-btn active" data-days="60">3月</button>
+  <button class="range-btn" data-days="120">6月</button>
+  <button class="range-btn" data-days="250">1年</button>
+  <button class="range-btn" data-days="500">2年</button>
+  <button class="range-btn" data-days="1250">5年</button>
+  <button class="range-btn" data-days="0">全部</button>
+</div>
+
+<!-- 图表 -->
+<div class="chart-wrap">
+  <div class="state-box" id="loading-box">
+    <div class="spinner"></div>
+    <div class="state-text" id="loading-text">正在获取分时数据...</div>
+  </div>
+  <div class="error-box" id="error-box">
+    <div>⚠️ 数据加载失败</div>
+    <button class="retry-btn" onclick="loadData()">重新加载</button>
+  </div>
+  <div id="main-chart" style="display:none;"></div>
+  <div class="watermark">stock.akai-led.com</div>
+</div>
+
+<!-- 指数详情 -->
+<div class="index-list">
+  <div class="list-header">
+    <span class="lh-name">指数</span>
+    <span class="lh-pct">涨跌幅</span>
+    <span class="lh-chg">涨跌点</span>
+  </div>
+  <div id="index-list-body"></div>
+</div>
+
+<footer>数据来源：腾讯财经 / 新浪财经 / Yahoo Finance &nbsp;·&nbsp; 仅供参考，不构成投资建议</footer>
+
+<script>
+// ===================== 配置 =====================
+const INDICES = [
+  { name: '沪深300',  code: 'sh000300', color: '#4d8fff' },
+  { name: '上证50',   code: 'sh000016', color: '#00c853' },
+  { name: '中证500',  code: 'sh000905', color: '#ff7d00' },
+  { name: '中证1000', code: 'sh000852', color: '#c060ff' },
+  { name: '中证2000', code: 'sh932000', color: '#ff4da6' },
+];
+
+const API_BASE = '';
+let currentPeriod = 'minute';
+let currentDays = 60;
+let chartInstance = null;
+let lastData = {};
+let lastRealtime = {};
+
+// ===================== 工具 =====================
+function fmtPct(v) {
+  if (v == null || isNaN(v)) return '--';
+  return (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%';
+}
+function pctClass(v) {
+  if (v == null || isNaN(v)) return 'flat';
+  return v > 0 ? 'up' : v < 0 ? 'down' : 'flat';
+}
+
+// ===================== 数据加载 =====================
+async function loadData() {
+  document.getElementById('loading-box').style.display = 'flex';
+  document.getElementById('main-chart').style.display = 'none';
+  document.getElementById('error-box').style.display = 'none';
+
+  const periodNames = { minute: '分时', '5min': '5分钟', '30min': '30分钟', daily: '日线' };
+  document.getElementById('loading-text').textContent = `正在获取${periodNames[currentPeriod]}数据...`;
+
+  try {
+    let url;
+    if (currentPeriod === 'minute') {
+      url = `${API_BASE}/api/minute`;
+    } else {
+      url = `${API_BASE}/api/kline?period=${currentPeriod}&days=${currentDays}`;
+    }
+
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || '数据错误');
+
+    lastData = json.data || {};
+    lastRealtime = json.realtime || {};
+
+    const now = new Date();
+    document.getElementById('update-time').textContent =
+      `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')} 更新`;
+
+    renderSummary();
+    renderIndexList();
+    document.getElementById('loading-box').style.display = 'none';
+    document.getElementById('main-chart').style.display = 'block';
+    renderChart();
+
+  } catch(e) {
+    console.error(e);
+    document.getElementById('loading-box').style.display = 'none';
+    document.getElementById('error-box').style.display = 'flex';
+  }
+}
+
+// ===================== 汇总 =====================
+function renderSummary() {
+  const grid = document.getElementById('summary-grid');
+  grid.innerHTML = '';
+  INDICES.forEach(idx => {
+    const rt = lastRealtime[idx.code];
+    let pct = null;
+    if (rt && rt.current && rt.prevClose) {
+      pct = (rt.current - rt.prevClose) / rt.prevClose * 100;
+    } else {
+      const d = lastData[idx.code];
+      if (d && d.length > 0) pct = d[d.length - 1].pct;
+    }
+    const item = document.createElement('div');
+    item.className = 'summary-item';
+    item.innerHTML = `
+      <div class="s-dot" style="background:${idx.color}"></div>
+      <span class="s-name">${idx.name}</span>
+      <span class="s-pct ${pctClass(pct)}">${fmtPct(pct)}</span>
+    `;
+    grid.appendChild(item);
+  });
+}
+
+// ===================== 指数列表 =====================
+function renderIndexList() {
+  const body = document.getElementById('index-list-body');
+  body.innerHTML = '';
+  INDICES.forEach(idx => {
+    const rt = lastRealtime[idx.code];
+    let pct = null, chgStr = '--';
+    if (rt && rt.current && rt.prevClose) {
+      pct = (rt.current - rt.prevClose) / rt.prevClose * 100;
+      const chg = rt.current - rt.prevClose;
+      chgStr = (chg >= 0 ? '+' : '') + chg.toFixed(2);
+    } else {
+      const d = lastData[idx.code];
+      if (d && d.length > 0) pct = d[d.length - 1].pct;
+    }
+    const row = document.createElement('div');
+    row.className = 'index-row';
+    row.innerHTML = `
+      <div class="ir-bar" style="background:${idx.color}"></div>
+      <div class="ir-info">
+        <div class="ir-name">${idx.name}</div>
+        <div class="ir-code">${idx.code.toUpperCase()}</div>
+      </div>
+      <div class="ir-pct ${pctClass(pct)}">${fmtPct(pct)}</div>
+      <div class="ir-chg">${chgStr}</div>
+    `;
+    body.appendChild(row);
+  });
+}
+
+// ===================== 图表 =====================
+function renderChart() {
+  const el = document.getElementById('main-chart');
+  if (!chartInstance) {
+    chartInstance = echarts.init(el, null, { renderer: 'canvas' });
+    window.addEventListener('resize', () => chartInstance.resize());
+  }
+
+  // 收集所有时间轴
+  const timeSet = new Set();
+  INDICES.forEach(idx => {
+    const d = lastData[idx.code];
+    if (d) d.forEach(item => timeSet.add(item.time));
+  });
+  const times = Array.from(timeSet).sort();
+
+  // 分时模式：只显示今天 09:30~15:00
+  const isMinute = currentPeriod === 'minute';
+
+  // 构建series
+  const series = INDICES.map(idx => {
+    const d = lastData[idx.code];
+    if (!d || d.length === 0) return null;
+
+    const map = {};
+    d.forEach(item => { map[item.time] = item.pct; });
+
+    const values = times.map(t => {
+      const v = map[t];
+      return v != null ? v : null;
+    });
+
+    return {
+      name: idx.name,
+      type: 'line',
+      data: values,
+      smooth: false,
+      symbol: 'none',
+      lineStyle: { width: isMinute ? 1.2 : 1.5, color: idx.color },
+      itemStyle: { color: idx.color },
+      connectNulls: !isMinute,
+      emphasis: { lineStyle: { width: 2 } },
+    };
+  }).filter(Boolean);
+
+  // X轴标签格式
+  let xLabelFormatter, xInterval;
+  if (isMinute) {
+    // 分时：只显示整点
+    xLabelFormatter = v => {
+      if (!v) return '';
+      const [h, m] = v.split(':');
+      return (m === '00' || m === '30') ? v : '';
+    };
+    xInterval = Math.max(0, Math.floor(times.length / 6) - 1);
+  } else if (currentPeriod === '5min') {
+    xLabelFormatter = v => v ? v.slice(5, 10) : '';
+    xInterval = Math.max(0, Math.floor(times.length / 6) - 1);
+  } else if (currentPeriod === '30min') {
+    xLabelFormatter = v => v ? v.slice(5, 10) : '';
+    xInterval = Math.max(0, Math.floor(times.length / 6) - 1);
+  } else {
+    xLabelFormatter = v => v ? v.slice(5) : '';
+    xInterval = Math.max(0, Math.floor(times.length / 6) - 1);
+  }
+
+  const option = {
+    backgroundColor: '#1a1a2e',
+    animation: true,
+    animationDuration: 400,
+
+    legend: {
+      data: INDICES.map(i => ({ name: i.name })),
+      top: 8, left: 8, right: 8,
+      textStyle: { color: '#888aa0', fontSize: 11 },
+      inactiveColor: '#2a2a40',
+      icon: 'circle', itemWidth: 8, itemHeight: 8,
+    },
+
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: '#20203a',
+      borderColor: '#3a3a5c',
+      borderWidth: 1,
+      padding: [8, 12],
+      textStyle: { color: '#d0d0e0', fontSize: 12 },
+      axisPointer: {
+        type: 'line',
+        lineStyle: { color: '#4a4a6a', width: 1, type: 'dashed' },
+      },
+      formatter(params) {
+        let html = `<div style="font-size:11px;color:#666880;margin-bottom:6px">${params[0]?.axisValue}</div>`;
+        params.forEach(p => {
+          if (p.value == null) return;
+          const c = p.value >= 0 ? '#ff4d4f' : '#00c853';
+          html += `<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin:3px 0">
+            <div style="display:flex;align-items:center;gap:5px">
+              <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${p.color}"></span>
+              <span style="color:#a0a0c0;font-size:11px">${p.seriesName}</span>
+            </div>
+            <span style="color:${c};font-weight:700;font-size:13px">${p.value >= 0 ? '+' : ''}${p.value}%</span>
+          </div>`;
+        });
+        return html;
+      }
+    },
+
+    grid: { left: 52, right: 12, top: 46, bottom: isMinute ? 28 : 46 },
+
+    xAxis: {
+      type: 'category',
+      data: times,
+      axisLine: { lineStyle: { color: '#252540' } },
+      axisTick: { show: false },
+      axisLabel: {
+        color: '#444460', fontSize: 10,
+        interval: xInterval,
+        formatter: xLabelFormatter,
+      },
+      splitLine: { show: false },
+    },
+
+    yAxis: {
+      type: 'value',
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: {
+        color: '#444460', fontSize: 10,
+        formatter: v => (v >= 0 ? '+' : '') + v.toFixed(1) + '%',
+      },
+      splitLine: { lineStyle: { color: '#1e1e30', type: 'dashed' } },
+    },
+
+    series: series.map((s, i) => i === 0 ? {
+      ...s,
+      markLine: {
+        silent: true, symbol: 'none',
+        data: [{ yAxis: 0 }],
+        lineStyle: { color: '#3a3a5c', width: 1, type: 'solid' },
+        label: { show: false },
+      }
+    } : s),
+
+    dataZoom: isMinute ? [] : [
+      { type: 'inside', start: 0, end: 100 },
+      {
+        type: 'slider', bottom: 4, height: 18,
+        borderColor: '#252540', backgroundColor: '#1a1a2e',
+        fillerColor: 'rgba(77,143,255,0.12)',
+        handleStyle: { color: '#4d6aaa', borderColor: '#4d6aaa' },
+        textStyle: { color: '#444460', fontSize: 10 },
+      }
+    ],
+  };
+
+  chartInstance.setOption(option, true);
+}
+
+// ===================== 自动刷新（分时模式每60秒刷新）=====================
+let autoRefreshTimer = null;
+function startAutoRefresh() {
+  if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+  if (currentPeriod === 'minute') {
+    autoRefreshTimer = setInterval(() => {
+      // 只在交易时间内刷新
+      const now = new Date();
+      const h = now.getHours(), m = now.getMinutes();
+      const inAM = (h === 9 && m >= 30) || (h === 10) || (h === 11 && m <= 30);
+      const inPM = (h >= 13 && h < 15) || (h === 15 && m === 0);
+      if (inAM || inPM) loadData();
+    }, 60000);
+  }
+}
+
+// ===================== 事件绑定 =====================
+document.querySelectorAll('.period-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentPeriod = btn.dataset.period;
+    // 日线才显示时间范围
+    document.getElementById('range-bar').style.display =
+      currentPeriod === 'daily' ? 'flex' : 'none';
+    startAutoRefresh();
+    loadData();
+  });
+});
+
+document.querySelectorAll('.range-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentDays = parseInt(btn.dataset.days);
+    loadData();
+  });
+});
+
+// ===================== 启动 =====================
+loadData();
+startAutoRefresh();
+</script>
+</body>
+</html>

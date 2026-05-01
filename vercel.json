@@ -1,0 +1,36 @@
+{
+  "name": "stock-indices",
+  "version": 2,
+  "public": true,
+  "env": {},
+  "buildCommand": "echo 'Build complete'",
+  "outputDirectory": "public",
+  "functions": {
+    "api/minute.py": {
+      "runtime": "python3.11"
+    },
+    "api/kline.py": {
+      "runtime": "python3.11"
+    },
+    "api/realtime.py": {
+      "runtime": "python3.11"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/",
+      "destination": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=60"
+        }
+      ]
+    }
+  ]
+}

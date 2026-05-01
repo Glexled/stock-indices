@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>大小盘涨跌对比 | stock.akai-led.com</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: #13131f;
+      color: #e0e0e0;
+      min-height: 100vh;
+    }
+
+    /* ===== 顶部栏 ===== */
+    .topbar {
+      background: #1a1a2e;
+      padding: 12px 16px 10px;
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid #252540;
+    }
+    .topbar h1 { font-size: 16px; font-weight: 600; color: #fff; }
+    .topbar .update-time { font-size: 11px; color: #555570; }
+
+    /* ===== 涨跌幅汇总 ===== */
+    .summary {
+      background: #1a1a2e;
+      padding: 10px 16px 12px;
+      border-bottom: 1px solid #252540;
+    }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px 0;
+    }
+    .summary-item {
+      display: flex; align-items: center; gap: 6px;
+    }
+    .s-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .s-name { font-size: 11px; color: #666880; min-width: 52px; }
+    .s-pct { font-size: 14px; font-weight: 700; }
+    .up   { color: #ff4d4f; }
+    .down { color: #00c853; }
+    .flat { color: #666880; }
+
+    /* ===== 周期切换 ===== */
+    .period-bar {
+      background: #1a1a2e;
+      padding: 8px 16px;
+      border-bottom: 1px solid #252540;
+      display: flex; gap: 8px; overflow-x: auto;
+    }
+    .period-btn {
+      padding: 6px 12px;
+      border: 1px solid #333344;
+      background: transparent;
+      color: #888899;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      white-space: nowrap;
+      transition: all 0.2s;
+    }
+    .period-btn:hover { border-color: #555566; }
+    .period-btn.active {
+      background: #4B9EFF;
+      border-color: #4B9EFF;
+      color: #fff;
+    }
+
+    /* ===== 图表容器 ===== */
+    #chart { width: 100%; height: calc(100vh - 180px); }
+
+    /* ===== 加载状态 ===== */
+    .loading {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.8);
+      padding: 20px 40px;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 14px;
+      z-index: 9999;
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <h1>📊 大小盘涨跌对比</h1>
+    <div class="update-time" id="updateTime">更新中...</div>
+  </div>
+
+  <div class="summary" id="summary"></div>
+
+  <div class="period-bar" id="periodBar"></div>
+
+  <div id="chart"></div>
+
+  <div class="loading" id="loading">加载中...</div>
+
+  <script>
+    // ===================== 配置 =====================
+    const INDICES = {
+      'sh000300': { name: '沪深300', color: '#4B9EFF' },
+      'sh000016': { name: '上证50', color: '#2ECC71' },
+      'sh000905': { name: '中证500', color: '#FF8C42' },
+      'sh000852': { name: '中证1000', color: '#C77DFF' },
+      'sh932000': { name: '中证2000', color: '#FF6B9D' },
+    };
+
+    const PERIODS = [
+      { key: 'minute', label: '分时', default: true },
+      { key: '5min', label: '5分' },
+      { key: '30min', label: '30分' },
+      { key: 'daily_10', label: '10日' },
+      { key: 'daily_60', label: '3月' },
+      { key: 'daily_120', label: '6月' },
+      { key: 'daily_250', label: '1年' },
+      { key: 'daily_500', label: '2年' },
+      { key: 'daily_1250', label: '5年' },
+    ];
+
+    let chart = echarts.init(document.getElementById('chart'), null, { renderer: 'canvas' });
+    let currentPeriod = 'minute';
+    let allData = {};
+
+    // ===================== API 调用 =====================
+    async function fetchData(period) {
+      const loading = document.getElementById('loading');
+      loading.style.display = 'block';
+
+      try {
+        let url = '/api/minute';
+        let params = {};
+
+        if (period === 'minute') {
+          url = '/api/minute';
+        } else if (period.startsWith('daily')) {
+          const days = parseInt(period.split('_')[1]) || 60;
+          url = `/api/kline?period=daily&days=${days}`;
+        } else {
+          url = `/api/kline?period=${period}&days=60`;
+        }
+
+        const response = await fetch(url);
+        const result = await response.json();
+
+        if (result.ok) {
+          allData = result.data;
+          updateSummary(result.realtime);
+          updateChart(period);
+          document.getElementById('updateTime').textContent = `更新: ${result.updated || new Date().toLocaleTimeString()}`;
+        } else {
+          console.error('API error:', result.error);
+        }
+      } catch (error) {
+        console.error('Fetch error:', error);
+      } finally {
+        loading.style.display = 'none';
+      }
+    }
+
+    // ===================== 更新汇总 =====================
+    function updateSummary(realtime) {
+      const summary = document.getElementById('summary');
+      let html = '<div class="summary-grid">';
+
+      for (const [symbol, info] of Object.entries(INDICES)) {
+        const data = allData[symbol];
+        if (!data || data.length === 0) continue;
+
+        const lastPct = data[data.length - 1].pct || 0;
+        const className = lastPct > 0 ? 'up' : lastPct < 0 ? 'down' : 'flat';
+        const sign = lastPct > 0 ? '+' : '';
+
+        html += `
+          <div class="summary-item">
+            <div class="s-dot" style="background: ${info.color}"></div>
+            <div class="s-name">${info.name}</div>
+            <div class="s-pct ${className}">${sign}${lastPct.toFixed(2)}%</div>
+          </div>
+        `;
+      }
+
+      html += '</div>';
+      summary.innerHTML = html;
+    }
+
+    // ===================== 更新图表 =====================
+    function updateChart(period) {
+      const series = [];
+      let xAxisData = [];
+
+      // 构建 X 轴（时间）：寻找最长的时间序列作为基准
+      let maxLen = 0;
+      let baseSymbol = '';
+      for (const symbol of Object.keys(INDICES)) {
+        if (allData[symbol] && allData[symbol].length > maxLen) {
+          maxLen = allData[symbol].length;
+          baseSymbol = symbol;
+        }
+      }
+      if (baseSymbol) {
+        xAxisData = allData[baseSymbol].map(item => item.time);
+      }
+
+      // 构建数据系列
+      for (const [symbol, info] of Object.entries(INDICES)) {
+        const data = allData[symbol];
+        if (!data) continue;
+
+        const yData = data.map(item => item.pct !== null ? item.pct : '-');
+        series.push({
+          name: info.name,
+          type: 'line',
+          data: yData,
+          smooth: true,
+          lineStyle: { width: 2 },
+          itemStyle: { borderWidth: 0 },
+          symbolSize: 0,
+          color: info.color,
+        });
+      }
+
+      const option = {
+        backgroundColor: '#13131f',
+        textStyle: { color: '#e0e0e0' },
+        tooltip: {
+          trigger: 'axis',
+          backgroundColor: 'rgba(0,0,0,0.8)',
+          borderColor: '#333344',
+          textStyle: { color: '#fff' },
+        },
+        legend: {
+          top: 'bottom',
+          textStyle: { color: '#888899' },
+        },
+        grid: {
+          left: '50px',
+          right: '20px',
+          top: '20px',
+          bottom: '60px',
+          containLabel: true,
+        },
+        xAxis: {
+          type: 'category',
+          data: xAxisData,
+          boundaryGap: false,
+          axisLine: { lineStyle: { color: '#333344' } },
+          axisLabel: { color: '#666880', fontSize: 10 },
+          splitLine: { show: false },
+        },
+        yAxis: {
+          type: 'value',
+          axisLine: { lineStyle: { color: '#333344' } },
+          axisLabel: { color: '#666880', fontSize: 10, formatter: '{value}%' },
+          splitLine: { lineStyle: { color: '#252540' } },
+        },
+        series: series,
+      };
+
+      chart.setOption(option);
+    }
+
+    // ===================== 初始化 =====================
+    function initPeriodBar() {
+      const bar = document.getElementById('periodBar');
+      PERIODS.forEach(p => {
+        const btn = document.createElement('button');
+        btn.className = `period-btn ${p.default ? 'active' : ''}`;
+        btn.textContent = p.label;
+        btn.onclick = () => {
+          document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          currentPeriod = p.key;
+          fetchData(p.key);
+        };
+        bar.appendChild(btn);
+      });
+    }
+
+    // ===================== 启动 =====================
+    window.addEventListener('load', () => {
+      initPeriodBar();
+      fetchData('minute');
+      // 分时数据每60秒自动刷新
+      setInterval(() => {
+        if (currentPeriod === 'minute') {
+          fetchData('minute');
+        }
+      }, 60000);
+    });
+
+    // 响应式调整
+    window.addEventListener('resize', () => {
+      chart.resize();
+    });
+  </script>
+</body>
+</html>
