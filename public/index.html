@@ -15,9 +15,42 @@
         .index-item { display: flex; justify-content: space-between; background: #161616; padding: 8px 10px; border-radius: 4px; font-size: 12px; cursor: pointer; opacity: 0.3; transition: opacity 0.2s; }
         .index-item.active { opacity: 1; }
         .index-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
-        #chart { flex: 1; width: 100%; }
+        #chart { flex: 1; width: 100%; position: relative; }
         .status { font-size: 10px; color: #444; text-align: center; padding: 5px; }
         .up { color: #ff4d4f; } .down { color: #00c853; }
+        
+        /* 加载提示样式 */
+        .loading-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            border-radius: 4px;
+        }
+        .loading-overlay.hidden { display: none; }
+        
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid #333;
+            border-top: 3px solid #ff4d4f;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .loading-text {
+            position: absolute;
+            bottom: 20px;
+            font-size: 12px;
+            color: #888;
+        }
     </style>
 </head>
 <body>
@@ -27,7 +60,14 @@
             <button class="nav-btn" id="btn-daily" onclick="setMode('daily')">日线历史</button>
         </div>
         <div id="grid" class="indices-grid"></div>
-        <div id="chart"></div>
+        <div id="chart">
+            <div class="loading-overlay" id="loading">
+                <div style="position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
+                    <div class="spinner"></div>
+                    <div class="loading-text">正在加载数据...</div>
+                </div>
+            </div>
+        </div>
         <div class="status" id="status"></div>
     </div>
     <script>
@@ -54,6 +94,7 @@
             currentMode = mode;
             document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
             document.getElementById('btn-'+mode).classList.add('active');
+            showLoading();
             update();
         }
 
@@ -63,15 +104,27 @@
             render();
         }
 
+        function showLoading() {
+            document.getElementById('loading').classList.remove('hidden');
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').classList.add('hidden');
+        }
+
         async function update() {
             try {
                 const res = await fetch(`/api/minute?mode=${currentMode}`);
                 const json = await res.json();
                 rawData = json.data;
                 render();
+                hideLoading();
                 document.getElementById('status').innerText = `${json.is_mock?'休市静止模式':'实时模式'} | 更新: ${json.updated}`;
                 if (json.is_mock) clearInterval(timer);
-            } catch (e) { console.error(e); }
+            } catch (e) { 
+                console.error(e);
+                hideLoading();
+            }
         }
 
         function render() {
@@ -85,7 +138,7 @@
                 const meta = META[code];
                 const points = rawData[code] || [];
                 const last = points[points.length-1] || {pct:0};
-                gridHtml += `<div class="index-item ${selected.has(code)?'active':''}"
+                gridHtml += `<div class="index-item ${selected.has(code)?'active':''}" onclick="toggle('${code}')">
                     <span><i class="index-dot" style="background:${meta.color}"></i>${meta.name}</span>
                     <span class="${last.pct>=0?'up':'down'}">${last.pct>=0?'+':''}${last.pct}%</span>
                 </div>`;
