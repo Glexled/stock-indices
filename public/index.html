@@ -9,7 +9,7 @@
         body { margin: 0; padding: 0; background-color: #000; color: #fff; font-family: sans-serif; }
         .container { display: flex; flex-direction: column; height: 100vh; }
         .nav { display: flex; background: #111; padding: 5px; border-bottom: 1px solid #222; }
-        .nav-btn { flex: 1; padding: 10px; text-align: center; font-size: 14px; color: #888; border: none; background: none; }
+        .nav-btn { flex: 1; padding: 10px; text-align: center; font-size: 14px; color: #888; border: none; background: none; cursor: pointer; }
         .nav-btn.active { color: #fff; font-weight: bold; border-bottom: 2px solid #ff4d4f; }
         .indices-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; padding: 10px; background: #080808; }
         .index-item { display: flex; justify-content: space-between; background: #161616; padding: 8px 10px; border-radius: 4px; font-size: 12px; cursor: pointer; opacity: 0.3; transition: opacity 0.2s; }
@@ -31,7 +31,6 @@
         <div class="status" id="status"></div>
     </div>
     <script>
-        // 严格按市值从大到小排序
         const META = {
             'sh000001': { name: '上证指数', color: '#FFFFFF' },
             'sh000016': { name: '上证50', color: '#2ECC71' },
@@ -42,13 +41,13 @@
             'sh000688': { name: '科创综指', color: '#00FFFF' },
             'sz399006': { name: '创业板指', color: '#00FA9A' }
         };
-        // 默认显示大中盘核心指数
         let selected = new Set(['sh000001', 'sh000016', 'sh000300', 'sh000905']);
         let currentMode = 'minute';
         let rawData = {};
         const chart = echarts.init(document.getElementById('chart'));
 
         function setMode(mode) {
+            if (currentMode === mode) return;
             currentMode = mode;
             document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
             document.getElementById('btn-'+mode).classList.add('active');
@@ -69,14 +68,14 @@
                 render();
                 document.getElementById('status').innerText = `${json.is_mock?'休市静止模式':'实时模式'} | 更新: ${json.updated}`;
                 if (json.is_mock) clearInterval(timer);
-            } catch (e) {}
+            } catch (e) { console.error(e); }
         }
 
         function render() {
             let gridHtml = '';
             const series = [];
             let xAxis = [];
-            // 保持 META 的 key 顺序渲染
+            
             Object.keys(META).forEach(code => {
                 const meta = META[code];
                 const points = rawData[code] || [];
@@ -94,13 +93,42 @@
                 }
             });
             document.getElementById('grid').innerHTML = gridHtml;
+            
             chart.setOption({
                 backgroundColor: '#000',
                 animation: !document.getElementById('status').innerText.includes('休市'),
-                tooltip: { trigger: 'axis', backgroundColor: '#222', textStyle: { color: '#fff', fontSize: 11 }, order: 'valueDesc' },
-                grid: { top: 20, left: 45, right: 15, bottom: 25 },
-                xAxis: { type: 'category', data: xAxis, axisLabel: { color: '#555', fontSize: 10, interval: currentMode==='daily'?Math.floor(xAxis.length/5):60 } },
-                yAxis: { type: 'value', axisLabel: { color: '#555', fontSize: 10, formatter: '{value}%' }, splitLine: { lineStyle: { color: '#111' } }, scale: true },
+                tooltip: { 
+                    trigger: 'axis', 
+                    backgroundColor: 'rgba(34, 34, 34, 0.9)', 
+                    borderColor: '#444',
+                    textStyle: { color: '#fff', fontSize: 12 },
+                    order: 'valueDesc',
+                    confine: true,
+                    formatter: function(params) {
+                        let res = `<div style="margin-bottom:5px;font-weight:bold;border-bottom:1px solid #444;padding-bottom:3px;">${params[0].name}</div>`;
+                        params.forEach(item => {
+                            res += `<div style="display:flex;justify-content:space-between;gap:20px;margin-bottom:2px;">
+                                <span><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${item.color};margin-right:5px;"></i>${item.seriesName}</span>
+                                <span style="color:${item.value>=0?'#ff4d4f':'#00c853'}">${item.value>=0?'+':''}${item.value}%</span>
+                            </div>`;
+                        });
+                        return res;
+                    }
+                },
+                grid: { top: 20, left: 50, right: 15, bottom: 25 },
+                xAxis: { 
+                    type: 'category', 
+                    data: xAxis, 
+                    axisLabel: { color: '#555', fontSize: 10, interval: currentMode==='daily'?Math.floor(xAxis.length/5):60 },
+                    axisLine: { lineStyle: { color: '#222' } }
+                },
+                yAxis: { 
+                    type: 'value', 
+                    axisLabel: { color: '#555', fontSize: 10, formatter: '{value}%' }, 
+                    splitLine: { lineStyle: { color: '#111' } }, 
+                    scale: true,
+                    axisLine: { show: false }
+                },
                 series: series
             }, true);
         }
