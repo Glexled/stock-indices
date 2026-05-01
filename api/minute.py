@@ -1,80 +1,88 @@
 from flask import Flask, jsonify
 import json
-import re
 import random
 from datetime import datetime
 import requests
 
 app = Flask(__name__)
 
-INDICES = {
-    'sh000001': '上证指数',
-    'sh000300': '沪深300',
-    'sh000016': '上证50',
-    'sh000905': '中证500',
-    'sh000852': '中证1000',
-    'sh932000': '中证2000',
-    'sh000688': '科创综指',
-    'sz399006': '创业板指',
+# 定义 8 大指数及其东方财富 SecID
+INDICES_CONFIG = {
+    'sh000001': {'name': '上证指数', 'secid': '1.000001'},
+    'sh000300': {'name': '沪深300', 'secid': '1.000300'},
+    'sh000016': {'name': '上证50', 'secid': '1.000016'},
+    'sh000905': {'name': '中证500', 'secid': '1.000905'},
+    'sh000852': {'name': '中证1000', 'secid': '1.000852'},
+    'sh932000': {'name': '中证2000', 'secid': '1.932000'},
+    'sh000688': {'name': '科创综指', 'secid': '1.000688'},
+    'sz399006': {'name': '创业板指', 'secid': '0.399006'}
 }
 
 def get_mock_data():
-    """休市期间或接口失败时返回模拟数据，确保用户能看到曲线"""
+    """生成模拟走势数据，用于休市期间展示"""
     result = {}
-    times = [f"{h:02d}:{m:02d}" for h in range(9, 16) for m in range(0, 60)]
-    times = [t for t in times if ("09:30" <= t <= "11:30") or ("13:00" <= t <= "15:00")]
+    # 生成交易时间点
+    times = []
+    for h in range(9, 16):
+        for m in range(0, 60):
+            t = f"{h:02d}:{m:02d}"
+            if ("09:30" <= t <= "11:30") or ("13:00" <= t <= "15:00"):
+                times.append(t)
     
-    for symbol in INDICES.keys():
+    for symbol in INDICES_CONFIG.keys():
         points = []
-        current_pct = 0
-        volatility = 0.05 if symbol != 'sh932000' else 0.1
+        current_pct = random.uniform(-0.5, 0.5)
+        vol = 0.03
         for t in times:
-            current_pct += random.uniform(-volatility, volatility)
-            points.append({'time': t, 'price': 3000 * (1 + current_pct/100), 'pct': round(current_pct, 3)})
+            current_pct += random.uniform(-vol, vol)
+            points.append({'time': t, 'pct': round(current_pct, 2)})
         result[symbol] = points
     return result
 
-def fetch_minute_data(symbol):
+def fetch_from_eastmoney(secid):
+    """从东方财富获取分时数据"""
     try:
-        if symbol == 'sh932000':
-            url = "https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=1.932000&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58"
-            r = requests.get(url, timeout=5)
-            d = r.json()
-            trends = d.get('data', {}).get('trends', [])
-            if trends:
-                pre_close = d['data']['preClose']
-                return [{'time': t.split(',')[0].split(' ')[1][:5], 'price': float(t.split(',')[2]), 'pct': round((float(t.split(',')[2])/pre_close-1)*100, 3)} for t in trends]
+        url = f"https://push2.eastmoney.com/api/qt/stock/trends2/get?secid={secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58"
+        resp = requests.get(url, timeout=5).json()
+        data = resp.get('data')
+        if not data or not data.get('trends'):
+            return None
         
-        url = f'https://web.ifzq.gtimg.cn/appstock/app/minute/query?code={symbol}'
-        r = requests.get(url, timeout=5)
-        d = r.json()
-        arr = d['data'][symbol]['data']['data']
-        if arr:
-            pre_close = float(d['data'][symbol]['data']['qt'][symbol][4])
-            return [{'time': f"{i.split()[0][:2]}:{i.split()[0][2:]}", 'price': float(i.split()[1]), 'pct': round((float(i.split()[1])/pre_close-1)*100, 3)} for i in arr]
-    except: pass
-    return None
+        pre_close = data['preClose']
+        trends = data['trends']
+        result = []
+        for item in trends:
+            parts = item.split(',')
+            time_str = parts[0].split(' ')[1][:5]
+            price = float(parts[2])
+            pct = round((price / pre_close - 1) * 100, 2)
+            result.append({'time': time_str, 'pct': pct})
+        return result
+    except Exception:
+        return None
 
 @app.route('/api/minute')
 def get_minute():
     try:
-        result = {}
-        has_data = False
-        for symbol in INDICES.keys():
-            data = fetch_minute_data(symbol)
-            if data:
-                result[symbol] = data
-                has_data = True
+        final_data = {}
+        any_success = False
         
-        # 如果是休市期间（如现在）且没有抓到实时数据，返回模拟数据供预览
-        if not has_data:
-            result = get_mock_data()
+        for symbol, config in INDICES_CONFIG.items():
+            data = fetch_from_eastmoney(config['secid'])
+            if data:
+                final_data[symbol] = data
+                any_success = True
+        
+        is_mock = False
+        if not any_success:
+            final_data = get_mock_data()
+            is_mock = True
             
         return jsonify({
             'ok': True,
-            'data': result,
-            'is_mock': not has_data,
-            'updated': datetime.now().strftime('%H:%M:%S'),
+            'data': final_data,
+            'is_mock': is_mock,
+            'updated': datetime.now().strftime('%H:%M:%S')
         })
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500

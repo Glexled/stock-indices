@@ -1,102 +1,162 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>A股主要指数对比</title>
-  <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: sans-serif; background: #000; color: #e0e0e0; }
-    .header { background: #1a1a1a; padding: 15px; border-bottom: 1px solid #333; }
-    .header h1 { font-size: 18px; text-align: center; }
-    .summary { padding: 10px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; background: #111; }
-    .item { display: flex; align-items: center; font-size: 14px; }
-    .dot { width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
-    .pct { margin-left: auto; font-weight: bold; }
-    #chart { width: 100%; height: 50vh; min-height: 350px; margin-top: 10px; }
-    .status { text-align: center; font-size: 12px; color: #666; padding: 10px; }
-    .up { color: #ff4d4f; }
-    .down { color: #00c853; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>A股主要指数对比</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        body { margin: 0; padding: 0; background-color: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; overflow-x: hidden; }
+        .container { display: flex; flex-direction: column; height: 100vh; width: 100vw; }
+        .header { padding: 10px 15px; background: #111; border-bottom: 1px solid #222; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { font-size: 16px; margin: 0; color: #eee; }
+        .update-time { font-size: 10px; color: #666; }
+        
+        .indices-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 10px; background: #080808; }
+        .index-item { display: flex; align-items: center; justify-content: space-between; background: #161616; padding: 8px 10px; border-radius: 4px; }
+        .index-name { font-size: 13px; display: flex; align-items: center; }
+        .index-dot { width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+        .index-pct { font-size: 13px; font-weight: bold; }
+        
+        #chart { flex: 1; width: 100%; min-height: 300px; }
+        .footer { padding: 8px; text-align: center; font-size: 10px; color: #444; border-top: 1px solid #111; }
+        
+        .up { color: #ff4d4f; }
+        .down { color: #00c853; }
+        .flat { color: #888; }
+    </style>
 </head>
 <body>
-  <div class="header">
-    <h1 id="title">A股主要指数对比 (5s刷新)</h1>
-  </div>
-  <div class="summary" id="summary">加载中...</div>
-  <div id="chart"></div>
-  <div class="status" id="status">正在连接数据源...</div>
+    <div class="container">
+        <div class="header">
+            <h1>A股指数对比 (5s刷新)</h1>
+            <div class="update-time" id="update-time">正在连接...</div>
+        </div>
+        
+        <div class="indices-grid" id="indices-grid">
+            <!-- 指数汇总将由 JS 动态生成 -->
+        </div>
+        
+        <div id="chart"></div>
+        
+        <div class="footer">
+            数据源: 东方财富 / 腾讯财经 | 仅供参考
+        </div>
+    </div>
 
-  <script>
-    const INDICES = {
-      'sh000001': { name: '上证指数', color: '#FFFFFF' },
-      'sh000300': { name: '沪深300', color: '#4B9EFF' },
-      'sh000016': { name: '上证50', color: '#2ECC71' },
-      'sh000905': { name: '中证500', color: '#FFD700' },
-      'sh000852': { name: '中证1000', color: '#FF69B4' },
-      'sh932000': { name: '中证2000', color: '#9370DB' },
-      'sh000688': { name: '科创综指', color: '#00FFFF' },
-      'sz399006': { name: '创业板指', color: '#00FA9A' }
-    };
+    <script>
+        const INDICES_META = {
+            'sh000001': { name: '上证指数', color: '#FFFFFF' },
+            'sh000300': { name: '沪深300', color: '#4B9EFF' },
+            'sh000016': { name: '上证50', color: '#2ECC71' },
+            'sh000905': { name: '中证500', color: '#FFD700' },
+            'sh000852': { name: '中证1000', color: '#FF69B4' },
+            'sh932000': { name: '中证2000', color: '#9370DB' },
+            'sh000688': { name: '科创综指', color: '#00FFFF' },
+            'sz399006': { name: '创业板指', color: '#00FA9A' }
+        };
 
-    let myChart = echarts.init(document.getElementById('chart'));
-
-    async function update() {
-      try {
-        const res = await fetch('/api/minute');
-        const json = await res.json();
-        if (!json.ok) throw new Error('API Error');
-
-        const data = json.data;
-        const summary = document.getElementById('summary');
-        let html = '';
-        const series = [];
-        let xAxis = [];
-
-        for (const [code, info] of Object.entries(INDICES)) {
-          const list = data[code] || [];
-          if (list.length > 0) {
-            const last = list[list.length - 1];
-            const cls = last.pct >= 0 ? 'up' : 'down';
-            html += `<div class="item">
-              <div class="dot" style="background:${info.color}"></div>
-              <span>${info.name}</span>
-              <span class="pct ${cls}">${last.pct > 0 ? '+' : ''}${last.pct}%</span>
-            </div>`;
-
-            if (xAxis.length === 0) xAxis = list.map(i => i.time);
-            series.push({
-              name: info.name,
-              type: 'line',
-              data: list.map(i => i.pct),
-              showSymbol: false,
-              lineStyle: { width: 2 },
-              itemStyle: { color: info.color }
-            });
-          }
+        const chart = echarts.init(document.getElementById('chart'));
+        
+        async function fetchData() {
+            try {
+                const response = await fetch('/api/minute');
+                const result = await response.json();
+                if (result.ok) {
+                    renderUI(result.data, result.updated, result.is_mock);
+                }
+            } catch (error) {
+                console.error('Fetch error:', error);
+                document.getElementById('update-time').innerText = '连接失败，重试中...';
+            }
         }
-        summary.innerHTML = html;
 
-        myChart.setOption({
-          backgroundColor: '#000',
-          tooltip: { trigger: 'axis' },
-          grid: { top: 20, left: 40, right: 10, bottom: 30 },
-          xAxis: { type: 'category', data: xAxis, axisLabel: { color: '#666', fontSize: 10 } },
-          yAxis: { type: 'value', axisLabel: { color: '#666', formatter: '{value}%' }, splitLine: { lineStyle: { color: '#222' } } },
-          series: series
-        });
+        function renderUI(data, time, isMock) {
+            const grid = document.getElementById('indices-grid');
+            const timeEl = document.getElementById('update-time');
+            timeEl.innerText = (isMock ? '休市演示 ' : '更新于 ') + time;
+            
+            let gridHtml = '';
+            const series = [];
+            let xAxisData = [];
 
-        document.getElementById('status').innerText = `更新时间: ${json.updated} ${json.is_mock ? '(休市演示数据)' : ''}`;
-      } catch (e) {
-        document.getElementById('status').innerText = '数据加载失败，正在重试...';
-        console.error(e);
-      }
-    }
+            for (const [code, meta] of Object.entries(INDICES_META)) {
+                const points = data[code] || [];
+                if (points.length > 0) {
+                    const lastPoint = points[points.length - 1];
+                    const pct = lastPoint.pct;
+                    const colorClass = pct > 0 ? 'up' : (pct < 0 ? 'down' : 'flat');
+                    const sign = pct > 0 ? '+' : '';
+                    
+                    gridHtml += `
+                        <div class="index-item">
+                            <div class="index-name">
+                                <div class="index-dot" style="background-color: ${meta.color}"></div>
+                                ${meta.name}
+                            </div>
+                            <div class="index-pct ${colorClass}">${sign}${pct}%</div>
+                        </div>
+                    `;
 
-    update();
-    setInterval(update, 5000);
-    window.onresize = () => myChart.resize();
-  </script>
+                    if (xAxisData.length === 0) {
+                        xAxisData = points.map(p => p.time);
+                    }
+
+                    series.push({
+                        name: meta.name,
+                        type: 'line',
+                        data: points.map(p => p.pct),
+                        showSymbol: false,
+                        lineStyle: { width: 1.5 },
+                        itemStyle: { color: meta.color }
+                    });
+                }
+            }
+            grid.innerHTML = gridHtml;
+
+            const option = {
+                backgroundColor: '#000',
+                animation: false,
+                tooltip: {
+                    trigger: 'axis',
+                    backgroundColor: 'rgba(32, 32, 32, 0.9)',
+                    borderColor: '#444',
+                    textStyle: { color: '#fff', fontSize: 11 },
+                    formatter: function(params) {
+                        let res = params[0].name + '<br/>';
+                        params.sort((a, b) => b.value - a.value);
+                        params.forEach(item => {
+                            res += `<span style="display:inline-block;margin-right:5px;border-radius:10px;width:9px;height:9px;background-color:${item.color};"></span>${item.seriesName}: ${item.value > 0 ? '+' : ''}${item.value}%<br/>`;
+                        });
+                        return res;
+                    }
+                },
+                grid: { top: '5%', left: '3%', right: '4%', bottom: '5%', containLabel: true },
+                xAxis: {
+                    type: 'category',
+                    data: xAxisData,
+                    axisLine: { lineStyle: { color: '#333' } },
+                    axisLabel: { color: '#666', fontSize: 10, interval: 60 },
+                    splitLine: { show: true, lineStyle: { color: '#111' } }
+                },
+                yAxis: {
+                    type: 'value',
+                    axisLabel: { 
+                        color: '#666', 
+                        fontSize: 10,
+                        formatter: '{value}%'
+                    },
+                    splitLine: { lineStyle: { color: '#222' } },
+                    scale: true
+                },
+                series: series
+            };
+            chart.setOption(option);
+        }
+
+        fetchData();
+        setInterval(fetchData, 5000);
+        window.addEventListener('resize', () => chart.resize());
+    </script>
 </body>
 </html>
