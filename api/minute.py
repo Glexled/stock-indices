@@ -23,23 +23,24 @@ def minute_api():
     updated_time = datetime.now().strftime('%H:%M:%S')
     
     for symbol, config in INDICES_CONFIG.items():
-        # 仅抓取当日分时数据
         url = f"https://push2.eastmoney.com/api/qt/stock/trends2/get?secid={config['secid']}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58"
         try:
-            resp = requests.get(url, timeout=2).json()
+            resp = requests.get(url, timeout=3).json()
             data = resp.get('data')
-            if data and 'trends' in data:
-                pre_close = data['preClose']
-                final_data[symbol] = []
+            if data and 'trends' in data and data['trends']:
+                pre_close = float(data['preClose'])
+                points = []
                 for t in data['trends']:
                     parts = t.split(',')
-                    # 仅保留时间部分 HH:mm
-                    time_str = parts[0].split(' ')[1][:5]
-                    price = float(parts[2])
-                    # 严格按当日昨收价计算涨幅
-                    pct = round((price / pre_close - 1) * 100, 2)
-                    final_data[symbol].append({'time': time_str, 'pct': pct})
-        except:
+                    if len(parts) >= 3:
+                        time_str = parts[0].split(' ')[1][:5]
+                        price = float(parts[2])
+                        pct = round((price / pre_close - 1) * 100, 2)
+                        points.append({'time': time_str, 'pct': pct})
+                if points:
+                    final_data[symbol] = points
+        except Exception as e:
+            print(f"Error fetching {symbol}: {e}")
             continue
             
     return jsonify({
