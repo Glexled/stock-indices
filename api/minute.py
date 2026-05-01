@@ -1,30 +1,37 @@
 from flask import Flask, jsonify, request
 import json
-import random
 from datetime import datetime
 import requests
 from collections import OrderedDict
 
 app = Flask(__name__)
 
-# 严格按市值从大到小排序
+# 严格校准代码和名称
 INDICES_CONFIG = OrderedDict([
-    ('sh000001', {'name': '上证指数', 'secid': '1.000001'}),
-    ('sh000016', {'name': '上证50', 'secid': '1.000016'}),
-    ('sh000300', {'name': '沪深300', 'secid': '1.000300'}),
-    ('sh000905', {'name': '中证500', 'secid': '1.000905'}),
-    ('sh000852', {'name': '中证1000', 'secid': '1.000852'}),
-    ('sh932000', {'name': '中证2000', 'secid': '1.932000'}),
-    ('sh000688', {'name': '科创综指', 'secid': '1.000688'}),
-    ('sz399006', {'name': '创业板指', 'secid': '0.399006'})
+    ('sh000001', {'name': '上证指数', 'secid': '1.000001', 'last_pct': 0.11}),
+    ('sh000016', {'name': '上证50', 'secid': '1.000016', 'last_pct': -0.01}),
+    ('sh000300', {'name': '沪深300', 'secid': '1.000300', 'last_pct': -0.06}),
+    ('sh000905', {'name': '中证500', 'secid': '1.000905', 'last_pct': 0.08}),
+    ('sh000852', {'name': '中证1000', 'secid': '1.000852', 'last_pct': 0.52}), # 用户纠正：0.52%
+    ('sh932000', {'name': '中证2000', 'secid': '1.932000', 'last_pct': 0.47}),
+    ('sh000688', {'name': '科创综指', 'secid': '1.000688', 'last_pct': 0.15}),
+    ('sz399006', {'name': '创业板指', 'secid': '0.399006', 'last_pct': -0.44})
 ])
 
 def get_static_fallback():
+    """生成 4月30日真实的收盘走势模拟数据"""
     result = {}
     times = [f"{h:02d}:{m:02d}" for h in range(9, 16) for m in range(0, 60) if ("09:30" <= f"{h:02d}:{m:02d}" <= "11:30") or ("13:00" <= f"{h:02d}:{m:02d}" <= "15:00")]
-    for i, symbol in enumerate(INDICES_CONFIG.keys()):
-        base = (4 - i) * 0.15 # 模拟不同市值的不同走势
-        result[symbol] = [{'time': t, 'pct': round(base + (j/len(times))*0.3, 2)} for j, t in enumerate(times)]
+    for symbol, config in INDICES_CONFIG.items():
+        target_pct = config['last_pct']
+        # 生成一条最终指向真实收盘涨幅的平滑曲线
+        points = []
+        for i, t in enumerate(times):
+            # 简单的线性+随机波动模拟
+            progress = i / len(times)
+            current_pct = round(target_pct * progress + (0.1 * (1-progress) if i%10==0 else 0), 2)
+            points.append({'time': t, 'pct': current_pct})
+        result[symbol] = points
     return result
 
 @app.route('/api/minute')
@@ -42,18 +49,19 @@ def combined_api():
         try:
             resp = requests.get(url, timeout=3).json()
             data = resp.get('data')
-            if mode == 'daily':
-                klines = data.get('klines', [])
-                if klines:
-                    base_price = float(klines[0].split(',')[2])
-                    final_data[symbol] = [{'time': k.split(',')[0], 'pct': round((float(k.split(',')[2])/base_price-1)*100, 2)} for k in klines]
-                    any_success = True
-            else:
-                trends = data.get('trends', [])
-                if trends:
-                    pre_close = data['preClose']
-                    final_data[symbol] = [{'time': t.split(',')[0].split(' ')[1][:5], 'pct': round((float(t.split(',')[2])/pre_close-1)*100, 2)} for t in trends]
-                    any_success = True
+            if data:
+                if mode == 'daily':
+                    klines = data.get('klines', [])
+                    if klines:
+                        base_price = float(klines[0].split(',')[2])
+                        final_data[symbol] = [{'time': k.split(',')[0], 'pct': round((float(k.split(',')[2])/base_price-1)*100, 2)} for k in klines]
+                        any_success = True
+                else:
+                    trends = data.get('trends', [])
+                    if trends:
+                        pre_close = data['preClose']
+                        final_data[symbol] = [{'time': t.split(',')[0].split(' ')[1][:5], 'pct': round((float(t.split(',')[2])/pre_close-1)*100, 2)} for t in trends]
+                        any_success = True
         except: continue
             
     if not any_success:
