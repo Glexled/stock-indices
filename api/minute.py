@@ -1,6 +1,7 @@
 from http.server import BaseHTTPRequestHandler
 import json
-import requests
+import urllib.request
+import urllib.error
 from datetime import datetime
 from collections import OrderedDict
 import concurrent.futures
@@ -28,9 +29,9 @@ def fetch_index_data(symbol, config):
         secid = config['secid']
         url = f"https://push2.eastmoney.com/api/qt/stock/trends2/get?secid={secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&ut=fa44cfb3f7e6c18e"
         
-        resp = requests.get(url, headers=HEADERS, timeout=2)
-        resp.raise_for_status()
-        data = resp.json()
+        req = urllib.request.Request(url, headers=HEADERS)
+        with urllib.request.urlopen(req, timeout=2) as response:
+            data = json.loads(response.read().decode('utf-8'))
         
         if data.get('data') and 'trends' in data['data'] and data['data']['trends']:
             trends = data['data']['trends']
