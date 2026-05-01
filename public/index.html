@@ -43,8 +43,8 @@
             'sh000688': { name: '科创50', color: '#FFA500' },
             'sz399006': { name: '创业板指', color: '#00FA9A' }
         };
-        // 默认显示大中盘核心指数
-        let selected = new Set(['sh000001', 'sh000016', 'sh000300', 'sh000905']);
+        // 默认显示全部 9 个指数
+        let selected = new Set(['sh000001', 'sh000016', 'sh000300', 'sh000905', 'sh000852', 'sh932000', 'sh000680', 'sh000688', 'sz399006']);
         let currentMode = 'minute';
         let rawData = {};
         const chart = echarts.init(document.getElementById('chart'));
@@ -105,11 +105,12 @@
                     backgroundColor: 'rgba(34, 34, 34, 0.9)', 
                     borderColor: '#444',
                     textStyle: { color: '#fff', fontSize: 12 },
-                    order: 'valueDesc',
                     confine: true,
                     formatter: function(params) {
+                        // 按当前时间点的涨幅从高到低排序
+                        const sorted = params.sort((a, b) => (b.value || 0) - (a.value || 0));
                         let res = `<div style="margin-bottom:5px;font-weight:bold;border-bottom:1px solid #444;padding-bottom:3px;">${params[0].name}</div>`;
-                        params.forEach(item => {
+                        sorted.forEach(item => {
                             res += `<div style="display:flex;justify-content:space-between;gap:20px;margin-bottom:2px;">
                                 <span><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${item.color};margin-right:5px;"></i>${item.seriesName}</span>
                                 <span style="color:${item.value>=0?'#ff4d4f':'#00c853'}">${item.value>=0?'+':''}${item.value}%</span>
