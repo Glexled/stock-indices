@@ -79,11 +79,13 @@
             const series = [];
             let xAxis = [];
             
-            Object.keys(META).forEach(code => {
+            // 严格按 META 中的顺序遍历（市值从大到小）
+            const orderedCodes = Object.keys(META);
+            orderedCodes.forEach(code => {
                 const meta = META[code];
                 const points = rawData[code] || [];
                 const last = points[points.length-1] || {pct:0};
-                gridHtml += `<div class="index-item ${selected.has(code)?'active':''}" onclick="toggle('${code}')">
+                gridHtml += `<div class="index-item ${selected.has(code)?'active':''}"
                     <span><i class="index-dot" style="background:${meta.color}"></i>${meta.name}</span>
                     <span class="${last.pct>=0?'up':'down'}">${last.pct>=0?'+':''}${last.pct}%</span>
                 </div>`;
@@ -109,11 +111,11 @@
                     formatter: function(params) {
                         // 按当前时间点的涨幅从高到低排序
                         const sorted = params.sort((a, b) => (b.value || 0) - (a.value || 0));
-                        let res = `<div style="margin-bottom:5px;font-weight:bold;border-bottom:1px solid #444;padding-bottom:3px;">${params[0].name}</div>`;
+                        let res = `<div style="margin-bottom:8px;font-weight:bold;border-bottom:1px solid #555;padding-bottom:5px;font-size:13px;">${params[0].name}</div>`;
                         sorted.forEach(item => {
-                            res += `<div style="display:flex;justify-content:space-between;gap:20px;margin-bottom:2px;">
-                                <span><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${item.color};margin-right:5px;"></i>${item.seriesName}</span>
-                                <span style="color:${item.value>=0?'#ff4d4f':'#00c853'}">${item.value>=0?'+':''}${item.value}%</span>
+                            res += `<div style="display:flex;justify-content:space-between;gap:20px;margin-bottom:3px;font-size:12px;">
+                                <span><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${item.color};margin-right:6px;"></i>${item.seriesName}</span>
+                                <span style="color:${item.value>=0?'#ff4d4f':'#00c853'};font-weight:bold;">${item.value>=0?'+':''}${item.value}%</span>
                             </div>`;
                         });
                         return res;
