@@ -4,7 +4,6 @@ import requests
 from datetime import datetime
 from collections import OrderedDict
 import concurrent.futures
-import time
 
 # 东方财富 API 指数代码映射
 INDICES_CONFIG = OrderedDict([
@@ -23,16 +22,11 @@ HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
 }
 
-# 简单的内存缓存
-_cache = {}
-_cache_time = {}
-CACHE_DURATION = 5  # 缓存 5 秒
-
 def fetch_index_data(symbol, config):
     """获取单个指数的数据"""
     try:
         secid = config['secid']
-        url = f"https://push2.eastmoney.com/api/qt/stock/trends2/get?secid={secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&ut=fa44cfb3f7e6c18e&_={int(time.time()*1000)}"
+        url = f"https://push2.eastmoney.com/api/qt/stock/trends2/get?secid={secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&ut=fa44cfb3f7e6c18e"
         
         resp = requests.get(url, headers=HEADERS, timeout=2)
         resp.raise_for_status()
@@ -65,62 +59,37 @@ def fetch_index_data(symbol, config):
                     return symbol, points
         
         return symbol, []
-    except requests.exceptions.Timeout:
-        # 超时时返回缓存数据
-        if symbol in _cache:
-            return symbol, _cache[symbol]
-        return symbol, []
     except Exception as e:
         print(f"Error fetching {symbol}: {str(e)}")
-        # 出错时返回缓存数据
-        if symbol in _cache:
-            return symbol, _cache[symbol]
         return symbol, []
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         """Vercel Serverless Function for minute data"""
-        global _cache, _cache_time
-        
         final_data = {}
         updated_time = datetime.now().strftime('%H:%M:%S')
         
-        # 检查缓存是否有效
-        current_time = time.time()
-        use_cache = False
-        
-        if _cache_time and (current_time - _cache_time.get('last_update', 0)) < CACHE_DURATION:
-            # 使用缓存
-            final_data = _cache.copy()
-            use_cache = True
-        else:
-            # 获取新数据
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                futures = {
-                    executor.submit(fetch_index_data, symbol, config): symbol 
-                    for symbol, config in INDICES_CONFIG.items()
-                }
-                
-                for future in concurrent.futures.as_completed(futures, timeout=5):
-                    try:
-                        symbol, points = future.result()
-                        if points:
-                            final_data[symbol] = points
-                    except Exception as e:
-                        print(f"Future error: {str(e)}")
-                        continue
+        # 使用线程池并发获取数据
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {
+                executor.submit(fetch_index_data, symbol, config): symbol 
+                for symbol, config in INDICES_CONFIG.items()
+            }
             
-            # 更新缓存
-            if final_data:
-                _cache = final_data.copy()
-                _cache_time['last_update'] = current_time
+            for future in concurrent.futures.as_completed(futures, timeout=5):
+                try:
+                    symbol, points = future.result()
+                    if points:
+                        final_data[symbol] = points
+                except Exception as e:
+                    print(f"Future error: {str(e)}")
+                    continue
         
         response = {
             'ok': True,
             'data': final_data,
             'updated': updated_time,
-            'count': len(final_data),
-            'cached': use_cache
+            'count': len(final_data)
         }
         
         self.send_response(200)
