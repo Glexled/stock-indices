@@ -3,49 +3,37 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>A股主要指数对比</title>
+    <title>A股指数对比</title>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <style>
-        body { margin: 0; padding: 0; background-color: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; overflow-x: hidden; }
-        .container { display: flex; flex-direction: column; height: 100vh; width: 100vw; }
-        .header { padding: 10px 15px; background: #111; border-bottom: 1px solid #222; display: flex; justify-content: space-between; align-items: center; }
-        .header h1 { font-size: 16px; margin: 0; color: #eee; }
-        .update-time { font-size: 10px; color: #666; }
+        body { margin: 0; padding: 0; background-color: #000; color: #fff; font-family: sans-serif; }
+        .container { display: flex; flex-direction: column; height: 100vh; }
+        .nav { display: flex; background: #111; padding: 5px; border-bottom: 1px solid #222; }
+        .nav-btn { flex: 1; padding: 10px; text-align: center; font-size: 14px; color: #888; border: none; background: none; }
+        .nav-btn.active { color: #fff; font-weight: bold; border-bottom: 2px solid #ff4d4f; }
         
-        .indices-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 10px; background: #080808; }
-        .index-item { display: flex; align-items: center; justify-content: space-between; background: #161616; padding: 8px 10px; border-radius: 4px; }
-        .index-name { font-size: 13px; display: flex; align-items: center; }
-        .index-dot { width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
-        .index-pct { font-size: 13px; font-weight: bold; }
+        .indices-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; padding: 10px; background: #080808; }
+        .index-item { display: flex; justify-content: space-between; background: #161616; padding: 6px 10px; border-radius: 2px; font-size: 12px; }
+        .index-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 5px; }
         
-        #chart { flex: 1; width: 100%; min-height: 300px; }
-        .footer { padding: 8px; text-align: center; font-size: 10px; color: #444; border-top: 1px solid #111; }
-        
-        .up { color: #ff4d4f; }
-        .down { color: #00c853; }
-        .flat { color: #888; }
+        #chart { flex: 1; width: 100%; }
+        .status { font-size: 10px; color: #444; text-align: center; padding: 5px; }
+        .up { color: #ff4d4f; } .down { color: #00c853; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>A股指数对比 (5s刷新)</h1>
-            <div class="update-time" id="update-time">正在连接...</div>
+        <div class="nav">
+            <button class="nav-btn active" onclick="setMode('minute')">分时对比</button>
+            <button class="nav-btn" onclick="setMode('daily')">日线历史</button>
         </div>
-        
-        <div class="indices-grid" id="indices-grid">
-            <!-- 指数汇总将由 JS 动态生成 -->
-        </div>
-        
+        <div class="indices-grid" id="grid"></div>
         <div id="chart"></div>
-        
-        <div class="footer">
-            数据源: 东方财富 / 腾讯财经 | 仅供参考
-        </div>
+        <div class="status" id="status">正在同步数据...</div>
     </div>
 
     <script>
-        const INDICES_META = {
+        const META = {
             'sh000001': { name: '上证指数', color: '#FFFFFF' },
             'sh000300': { name: '沪深300', color: '#4B9EFF' },
             'sh000016': { name: '上证50', color: '#2ECC71' },
@@ -56,107 +44,51 @@
             'sz399006': { name: '创业板指', color: '#00FA9A' }
         };
 
+        let currentMode = 'minute';
         const chart = echarts.init(document.getElementById('chart'));
-        
-        async function fetchData() {
+
+        function setMode(mode) {
+            currentMode = mode;
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+            event.target.classList.add('active');
+            update();
+        }
+
+        async function update() {
             try {
-                const response = await fetch('/api/minute');
-                const result = await response.json();
-                if (result.ok) {
-                    renderUI(result.data, result.updated, result.is_mock);
+                const res = await fetch(`/api/minute?mode=${currentMode}`);
+                const json = await res.json();
+                if (!json.ok) return;
+
+                let gridHtml = '';
+                const series = [];
+                let xAxis = [];
+
+                for (const [code, meta] of Object.entries(META)) {
+                    const points = json.data[code] || [];
+                    if (points.length > 0) {
+                        const last = points[points.length - 1];
+                        gridHtml += `<div class="index-item"><span><i class="index-dot" style="background:${meta.color}"></i>${meta.name}</span><span class="${last.pct>=0?'up':'down'}">${last.pct>=0?'+':''}${last.pct}%</span></div>`;
+                        if (xAxis.length === 0) xAxis = points.map(p => p.time);
+                        series.push({ name: meta.name, type: 'line', data: points.map(p => p.pct), showSymbol: false, itemStyle: { color: meta.color }, lineStyle: { width: 1.5 } });
+                    }
                 }
-            } catch (error) {
-                console.error('Fetch error:', error);
-                document.getElementById('update-time').innerText = '连接失败，重试中...';
-            }
+                document.getElementById('grid').innerHTML = gridHtml;
+                chart.setOption({
+                    backgroundColor: '#000',
+                    tooltip: { trigger: 'axis', backgroundColor: '#222', borderColor: '#444', textStyle: { color: '#fff', fontSize: 10 } },
+                    grid: { top: 10, left: 40, right: 10, bottom: 20 },
+                    xAxis: { type: 'category', data: xAxis, axisLabel: { color: '#555', fontSize: 9, interval: currentMode==='daily'?10:60 }, axisLine: { lineStyle: { color: '#222' } } },
+                    yAxis: { type: 'value', axisLabel: { color: '#555', fontSize: 9, formatter: '{value}%' }, splitLine: { lineStyle: { color: '#111' } } },
+                    series: series
+                }, true);
+                document.getElementById('status').innerText = `最后更新: ${json.updated} ${json.is_mock?'(休市演示)':''}`;
+            } catch (e) { console.error(e); }
         }
 
-        function renderUI(data, time, isMock) {
-            const grid = document.getElementById('indices-grid');
-            const timeEl = document.getElementById('update-time');
-            timeEl.innerText = (isMock ? '休市演示 ' : '更新于 ') + time;
-            
-            let gridHtml = '';
-            const series = [];
-            let xAxisData = [];
-
-            for (const [code, meta] of Object.entries(INDICES_META)) {
-                const points = data[code] || [];
-                if (points.length > 0) {
-                    const lastPoint = points[points.length - 1];
-                    const pct = lastPoint.pct;
-                    const colorClass = pct > 0 ? 'up' : (pct < 0 ? 'down' : 'flat');
-                    const sign = pct > 0 ? '+' : '';
-                    
-                    gridHtml += `
-                        <div class="index-item">
-                            <div class="index-name">
-                                <div class="index-dot" style="background-color: ${meta.color}"></div>
-                                ${meta.name}
-                            </div>
-                            <div class="index-pct ${colorClass}">${sign}${pct}%</div>
-                        </div>
-                    `;
-
-                    if (xAxisData.length === 0) {
-                        xAxisData = points.map(p => p.time);
-                    }
-
-                    series.push({
-                        name: meta.name,
-                        type: 'line',
-                        data: points.map(p => p.pct),
-                        showSymbol: false,
-                        lineStyle: { width: 1.5 },
-                        itemStyle: { color: meta.color }
-                    });
-                }
-            }
-            grid.innerHTML = gridHtml;
-
-            const option = {
-                backgroundColor: '#000',
-                animation: false,
-                tooltip: {
-                    trigger: 'axis',
-                    backgroundColor: 'rgba(32, 32, 32, 0.9)',
-                    borderColor: '#444',
-                    textStyle: { color: '#fff', fontSize: 11 },
-                    formatter: function(params) {
-                        let res = params[0].name + '<br/>';
-                        params.sort((a, b) => b.value - a.value);
-                        params.forEach(item => {
-                            res += `<span style="display:inline-block;margin-right:5px;border-radius:10px;width:9px;height:9px;background-color:${item.color};"></span>${item.seriesName}: ${item.value > 0 ? '+' : ''}${item.value}%<br/>`;
-                        });
-                        return res;
-                    }
-                },
-                grid: { top: '5%', left: '3%', right: '4%', bottom: '5%', containLabel: true },
-                xAxis: {
-                    type: 'category',
-                    data: xAxisData,
-                    axisLine: { lineStyle: { color: '#333' } },
-                    axisLabel: { color: '#666', fontSize: 10, interval: 60 },
-                    splitLine: { show: true, lineStyle: { color: '#111' } }
-                },
-                yAxis: {
-                    type: 'value',
-                    axisLabel: { 
-                        color: '#666', 
-                        fontSize: 10,
-                        formatter: '{value}%'
-                    },
-                    splitLine: { lineStyle: { color: '#222' } },
-                    scale: true
-                },
-                series: series
-            };
-            chart.setOption(option);
-        }
-
-        fetchData();
-        setInterval(fetchData, 5000);
-        window.addEventListener('resize', () => chart.resize());
+        update();
+        setInterval(() => { if(currentMode==='minute') update(); }, 5000);
+        window.onresize = () => chart.resize();
     </script>
 </body>
 </html>
