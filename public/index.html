@@ -3,36 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <title>A股指数对比</title>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <style>
         * { box-sizing: border-box; }
-        html, body { margin: 0; padding: 0; background: #000; color: #fff; width: 100%; height: 100%; overflow: hidden; font-family: sans-serif; }
+        body { margin: 0; padding: 0; background: #000; color: #fff; font-family: sans-serif; overflow: hidden; width: 100vw; height: 100vh; }
         .container { display: flex; flex-direction: column; height: 100%; width: 100%; }
-        .nav { display: flex; background: #111; padding: 5px; border-bottom: 1px solid #222; flex-shrink: 0; }
-        .nav-btn { flex: 1; padding: 12px; text-align: center; font-size: 14px; color: #888; border: none; background: none; }
-        .nav-btn.active { color: #fff; font-weight: bold; border-bottom: 2px solid #ff4d4f; }
+        .header { background: #111; padding: 12px; text-align: center; font-weight: bold; border-bottom: 1px solid #222; font-size: 16px; }
         .indices-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; padding: 10px; background: #080808; flex-shrink: 0; }
-        .index-item { display: flex; justify-content: space-between; align-items: center; background: #161616; padding: 8px 10px; border-radius: 4px; font-size: 12px; opacity: 0.3; }
-        .index-item.active { opacity: 1; border: 1px solid #333; }
+        .index-item { display: flex; justify-content: space-between; align-items: center; background: #161616; padding: 8px 10px; border-radius: 4px; font-size: 12px; border: 1px solid transparent; opacity: 0.3; }
+        .index-item.active { opacity: 1; border-color: #333; }
         .index-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 5px; }
-        #chart { flex: 1; width: 100%; min-height: 0; background: #000; }
-        .status { font-size: 10px; color: #444; text-align: center; padding: 8px; flex-shrink: 0; }
+        #chart { flex: 1; width: 100%; background: #000; }
+        .status { font-size: 10px; color: #444; text-align: center; padding: 8px; }
         .up { color: #ff4d4f; } .down { color: #00c853; }
-        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #888; font-size: 12px; pointer-events: none; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="nav">
-            <button class="nav-btn active" id="btn-minute" onclick="setMode('minute')">5日对比</button>
-            <button class="nav-btn" id="btn-daily" onclick="setMode('daily')">日线历史</button>
-        </div>
+        <div class="header">当日分时对比</div>
         <div id="grid" class="indices-grid"></div>
         <div id="chart"></div>
-        <div id="loading">正在获取最新行情...</div>
-        <div class="status" id="status">系统启动中...</div>
+        <div class="status" id="status">数据同步中...</div>
     </div>
     <script>
         var META = {
@@ -47,17 +39,8 @@
             'sz399006': { name: '创业板指', color: '#00FA9A' }
         };
         var selected = new Set(Object.keys(META));
-        var currentMode = 'minute';
         var rawData = {};
         var chart = echarts.init(document.getElementById('chart'));
-
-        function setMode(mode) {
-            if (currentMode === mode) return;
-            currentMode = mode;
-            document.getElementById('btn-minute').className = 'nav-btn' + (mode === 'minute' ? ' active' : '');
-            document.getElementById('btn-daily').className = 'nav-btn' + (mode === 'daily' ? ' active' : '');
-            update();
-        }
 
         function toggle(code) {
             if (selected.has(code)) { if(selected.size > 1) selected.delete(code); }
@@ -66,20 +49,15 @@
         }
 
         function update() {
-            document.getElementById('loading').style.display = 'block';
-            var url = '/api/minute?mode=' + currentMode + '&t=' + new Date().getTime();
             var xhr = new XMLHttpRequest();
-            xhr.open('GET', url, true);
+            xhr.open('GET', '/api/minute?t=' + new Date().getTime(), true);
             xhr.onreadystatechange = function() {
-                if (xhr.readyState === 4) {
-                    document.getElementById('loading').style.display = 'none';
-                    if (xhr.status === 200) {
-                        var json = JSON.parse(xhr.responseText);
-                        if (json.ok) {
-                            rawData = json.data;
-                            render();
-                            document.getElementById('status').innerText = (json.is_mock ? '休市' : '实时') + ' | ' + json.updated;
-                        }
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    var json = JSON.parse(xhr.responseText);
+                    if (json.ok) {
+                        rawData = json.data;
+                        render();
+                        document.getElementById('status').innerText = '最后更新: ' + json.updated;
                     }
                 }
             };
@@ -127,18 +105,13 @@
                     }
                 },
                 grid: { top: 20, left: 45, right: 15, bottom: 25 },
-                xAxis: {
-                    type: 'category', data: xAxis, axisLabel: {
-                        color: '#555', fontSize: 10, interval: Math.floor(xAxis.length / 5),
-                        formatter: function(v) { return currentMode === 'minute' ? (v.indexOf('09:30') > -1 ? v.split(' ')[0].substring(5) : '') : v.substring(5); }
-                    }
-                },
+                xAxis: { type: 'category', data: xAxis, axisLabel: { color: '#555', fontSize: 10, interval: 60 }},
                 yAxis: { type: 'value', axisLabel: { color: '#555', fontSize: 10, formatter: '{value}%' }, splitLine: { lineStyle: { color: '#111' } }, scale: true },
                 series: series
             }, true);
         }
         update();
-        setInterval(function() { if (currentMode === 'minute') update(); }, 20000);
+        setInterval(update, 20000);
         window.onresize = function() { chart.resize(); };
     </script>
 </body>
