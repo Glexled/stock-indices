@@ -9,15 +9,12 @@
         body { margin: 0; padding: 0; background-color: #000; color: #fff; font-family: sans-serif; }
         .container { display: flex; flex-direction: column; height: 100vh; }
         .nav { display: flex; background: #111; padding: 5px; border-bottom: 1px solid #222; }
-        .nav-btn { flex: 1; padding: 10px; text-align: center; font-size: 14px; color: #888; border: none; background: none; outline: none; }
+        .nav-btn { flex: 1; padding: 10px; text-align: center; font-size: 14px; color: #888; border: none; background: none; }
         .nav-btn.active { color: #fff; font-weight: bold; border-bottom: 2px solid #ff4d4f; }
-        
         .indices-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; padding: 10px; background: #080808; }
-        .index-item { display: flex; justify-content: space-between; background: #161616; padding: 8px 10px; border-radius: 4px; font-size: 12px; cursor: pointer; border: 1px solid transparent; transition: all 0.2s; }
-        .index-item.inactive { opacity: 0.3; }
-        .index-item.highlight { border-color: #555; background: #222; }
+        .index-item { display: flex; justify-content: space-between; background: #161616; padding: 8px 10px; border-radius: 4px; font-size: 12px; cursor: pointer; opacity: 0.3; transition: opacity 0.2s; }
+        .index-item.active { opacity: 1; }
         .index-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
-        
         #chart { flex: 1; width: 100%; }
         .status { font-size: 10px; color: #444; text-align: center; padding: 5px; }
         .up { color: #ff4d4f; } .down { color: #00c853; }
@@ -29,11 +26,10 @@
             <button class="nav-btn active" id="btn-minute" onclick="setMode('minute')">分时对比</button>
             <button class="nav-btn" id="btn-daily" onclick="setMode('daily')">日线历史</button>
         </div>
-        <div class="indices-grid" id="grid"></div>
+        <div id="grid" class="indices-grid"></div>
         <div id="chart"></div>
-        <div class="status" id="status">正在同步数据...</div>
+        <div class="status" id="status"></div>
     </div>
-
     <script>
         const META = {
             'sh000001': { name: '上证指数', color: '#FFFFFF' },
@@ -45,119 +41,70 @@
             'sh000688': { name: '科创综指', color: '#00FFFF' },
             'sz399006': { name: '创业板指', color: '#00FA9A' }
         };
-
+        // 默认只显示核心 3 条
+        let selected = new Set(['sh000001', 'sh000300', 'sh000852']);
         let currentMode = 'minute';
-        let selectedIndices = new Set(Object.keys(META));
-        const chart = echarts.init(document.getElementById('chart'));
         let rawData = {};
+        const chart = echarts.init(document.getElementById('chart'));
 
         function setMode(mode) {
             currentMode = mode;
             document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-            document.getElementById('btn-' + mode).classList.add('active');
+            document.getElementById('btn-'+mode).classList.add('active');
             update();
         }
 
-        function toggleIndex(code) {
-            if (selectedIndices.has(code)) {
-                if (selectedIndices.size > 1) selectedIndices.delete(code);
-            } else {
-                selectedIndices.add(code);
-            }
-            renderChart();
-            renderGrid();
-        }
-
-        function highlightLine(code) {
-            chart.dispatchAction({ type: 'highlight', seriesName: META[code].name });
-        }
-
-        function downplayLine(code) {
-            chart.dispatchAction({ type: 'downplay', seriesName: META[code].name });
+        function toggle(code) {
+            if (selected.has(code)) { if(selected.size>1) selected.delete(code); }
+            else { selected.add(code); }
+            render();
         }
 
         async function update() {
             try {
                 const res = await fetch(`/api/minute?mode=${currentMode}`);
                 const json = await res.json();
-                if (!json.ok) return;
                 rawData = json.data;
-                renderChart();
-                renderGrid();
-                document.getElementById('status').innerText = `最后更新: ${json.updated} ${json.is_mock?'(休市演示)':''}`;
-            } catch (e) { console.error(e); }
+                render();
+                document.getElementById('status').innerText = `${json.is_mock?'休市静止模式':'实时模式'} | 更新: ${json.updated}`;
+                // 如果是休市模式，降低刷新率为 10 分钟，避免无谓跳动
+                if (json.is_mock) clearInterval(timer);
+            } catch (e) {}
         }
 
-        function renderGrid() {
+        function render() {
             let gridHtml = '';
-            for (const [code, meta] of Object.entries(META)) {
-                const points = rawData[code] || [];
-                if (points.length > 0) {
-                    const last = points[points.length - 1];
-                    const inactive = !selectedIndices.has(code) ? 'inactive' : '';
-                    gridHtml += `
-                        <div class="index-item ${inactive}" 
-                             onclick="toggleIndex('${code}')" 
-                             onmouseover="highlightLine('${code}')" 
-                             onmouseout="downplayLine('${code}')">
-                            <span><i class="index-dot" style="background:${meta.color}"></i>${meta.name}</span>
-                            <span class="${last.pct>=0?'up':'down'}">${last.pct>=0?'+':''}${last.pct}%</span>
-                        </div>`;
-                }
-            }
-            document.getElementById('grid').innerHTML = gridHtml;
-        }
-
-        function renderChart() {
             const series = [];
             let xAxis = [];
             for (const [code, meta] of Object.entries(META)) {
-                if (!selectedIndices.has(code)) continue;
                 const points = rawData[code] || [];
-                if (points.length > 0) {
+                const last = points[points.length-1] || {pct:0};
+                gridHtml += `<div class="index-item ${selected.has(code)?'active':''}" onclick="toggle('${code}')">
+                    <span><i class="index-dot" style="background:${meta.color}"></i>${meta.name}</span>
+                    <span class="${last.pct>=0?'up':'down'}">${last.pct>=0?'+':''}${last.pct}%</span>
+                </div>`;
+                if (selected.has(code) && points.length > 0) {
                     if (xAxis.length === 0) xAxis = points.map(p => p.time);
                     series.push({
-                        name: meta.name,
-                        type: 'line',
-                        data: points.map(p => p.pct),
-                        showSymbol: false,
-                        smooth: true,
-                        itemStyle: { color: meta.color },
-                        lineStyle: { width: 2 },
-                        emphasis: { lineStyle: { width: 4, shadowBlur: 10, shadowColor: 'rgba(255,255,255,0.5)' } }
+                        name: meta.name, type: 'line', data: points.map(p => p.pct),
+                        showSymbol: false, smooth: true, itemStyle: { color: meta.color }, lineStyle: { width: 2 }
                     });
                 }
             }
-
+            document.getElementById('grid').innerHTML = gridHtml;
             chart.setOption({
                 backgroundColor: '#000',
-                legend: { show: false },
-                tooltip: { 
-                    trigger: 'axis', 
-                    backgroundColor: '#222', 
-                    borderColor: '#444', 
-                    textStyle: { color: '#fff', fontSize: 11 },
-                    order: 'valueDesc'
-                },
+                animation: !document.getElementById('status').innerText.includes('休市'),
+                tooltip: { trigger: 'axis', backgroundColor: '#222', textStyle: { color: '#fff', fontSize: 11 } },
                 grid: { top: 20, left: 45, right: 15, bottom: 25 },
-                xAxis: { 
-                    type: 'category', 
-                    data: xAxis, 
-                    axisLabel: { color: '#555', fontSize: 10, interval: currentMode==='daily'?Math.floor(xAxis.length/5):60 }, 
-                    axisLine: { lineStyle: { color: '#222' } } 
-                },
-                yAxis: { 
-                    type: 'value', 
-                    axisLabel: { color: '#555', fontSize: 10, formatter: '{value}%' }, 
-                    splitLine: { lineStyle: { color: '#111' } },
-                    scale: true
-                },
+                xAxis: { type: 'category', data: xAxis, axisLabel: { color: '#555', fontSize: 10, interval: currentMode==='daily'?Math.floor(xAxis.length/5):60 } },
+                yAxis: { type: 'value', axisLabel: { color: '#555', fontSize: 10, formatter: '{value}%' }, splitLine: { lineStyle: { color: '#111' } }, scale: true },
                 series: series
             }, true);
         }
 
         update();
-        setInterval(() => { if(currentMode==='minute') update(); }, 5000);
+        let timer = setInterval(() => { if(currentMode==='minute') update(); }, 5000);
         window.onresize = () => chart.resize();
     </script>
 </body>
