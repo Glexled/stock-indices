@@ -7,42 +7,23 @@
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <style>
         * { box-sizing: border-box; }
-        body { margin: 0; padding: 0; background-color: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; overflow: hidden; }
+        body { margin: 0; padding: 0; background-color: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, sans-serif; overflow: hidden; }
         .container { display: flex; flex-direction: column; height: 100vh; width: 100vw; }
         .nav { display: flex; background: #111; padding: 5px; border-bottom: 1px solid #222; flex-shrink: 0; }
-        .nav-btn { flex: 1; padding: 12px; text-align: center; font-size: 14px; color: #888; border: none; background: none; cursor: pointer; outline: none; }
+        .nav-btn { flex: 1; padding: 12px; text-align: center; font-size: 14px; color: #888; border: none; background: none; cursor: pointer; }
         .nav-btn.active { color: #fff; font-weight: bold; border-bottom: 2px solid #ff4d4f; }
         .indices-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; padding: 10px; background: #080808; flex-shrink: 0; }
         .index-item { display: flex; justify-content: space-between; align-items: center; background: #161616; padding: 10px; border-radius: 4px; font-size: 12px; cursor: pointer; opacity: 0.3; transition: opacity 0.2s; border: 1px solid transparent; }
         .index-item.active { opacity: 1; border-color: #333; }
         .index-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
-        #chart-container { flex: 1; width: 100%; position: relative; min-height: 200px; background: #000; }
+        #chart-container { flex: 1; width: 100%; position: relative; background: #000; }
         #chart { width: 100%; height: 100%; }
-        .status { font-size: 10px; color: #444; text-align: center; padding: 8px; flex-shrink: 0; background: #000; }
+        .status { font-size: 10px; color: #444; text-align: center; padding: 8px; flex-shrink: 0; }
         .up { color: #ff4d4f; } .down { color: #00c853; }
-        
-        .loading-overlay {
-            position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0, 0, 0, 0.9);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-        }
+        .loading-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.8); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; }
         .loading-overlay.hidden { display: none; }
-        .spinner {
-            width: 30px;
-            height: 30px;
-            border: 2px solid #333;
-            border-top: 2px solid #ff4d4f;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin-bottom: 12px;
-        }
+        .spinner { width: 30px; height: 30px; border: 2px solid #333; border-top: 2px solid #ff4d4f; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 10px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .loading-text { font-size: 12px; color: #888; letter-spacing: 1px; }
     </style>
 </head>
 <body>
@@ -54,12 +35,9 @@
         <div id="grid" class="indices-grid"></div>
         <div id="chart-container">
             <div id="chart"></div>
-            <div class="loading-overlay" id="loading">
-                <div class="spinner"></div>
-                <div class="loading-text">正在同步实时行情...</div>
-            </div>
+            <div class="loading-overlay" id="loading"><div class="spinner"></div><div style="font-size:12px;color:#888">同步数据中...</div></div>
         </div>
-        <div class="status" id="status">系统初始化中...</div>
+        <div class="status" id="status">系统初始化...</div>
     </div>
     <script>
         const META = {
@@ -76,16 +54,13 @@
         let selected = new Set(Object.keys(META));
         let currentMode = 'minute';
         let rawData = {};
-        let chart = null;
-
-        function initChart() {
-            if (chart) chart.dispose();
-            chart = echarts.init(document.getElementById('chart'));
-        }
+        let chart = echarts.init(document.getElementById('chart'));
+        let isFirstLoad = true;
 
         function setMode(mode) {
             if (currentMode === mode) return;
             currentMode = mode;
+            isFirstLoad = true; // 切换模式时重新加载
             document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
             document.getElementById('btn-'+mode).classList.add('active');
             update();
@@ -94,32 +69,35 @@
         function toggle(code) {
             if (selected.has(code)) { if(selected.size > 1) selected.delete(code); }
             else { selected.add(code); }
-            render();
+            render(false); // 仅切换显隐，不显示加载
         }
 
         async function update() {
-            document.getElementById('loading').classList.remove('hidden');
+            if (isFirstLoad) document.getElementById('loading').classList.remove('hidden');
             try {
                 const res = await fetch(`/api/minute?mode=${currentMode}`);
                 const json = await res.json();
                 if (json.ok) {
                     rawData = json.data;
-                    render();
-                    document.getElementById('status').innerText = `${json.is_mock?'休市静止模式':'实时模式'} | 更新: ${json.updated}`;
+                    render(true);
+                    document.getElementById('status').innerText = `${json.is_mock?'休市静止':'实时更新'} | ${json.updated}`;
+                    // 智能休市检测：如果是模拟数据（休市），停止自动刷新
+                    if (json.is_mock && currentMode === 'minute') {
+                        console.log('Market closed, stopping refresh.');
+                        clearInterval(refreshTimer);
+                    }
                 }
-            } catch (e) {
-                console.error(e);
-                document.getElementById('status').innerText = '数据同步失败，请检查网络';
-            } finally {
+            } catch (e) { console.error(e); }
+            finally { 
                 document.getElementById('loading').classList.add('hidden');
+                isFirstLoad = false;
             }
         }
 
-        function render() {
-            if (!chart) initChart();
+        function render(isNewData) {
             let gridHtml = '';
             const series = [];
-            let xAxis = [];
+            let xAxisData = [];
             
             Object.keys(META).forEach(code => {
                 const meta = META[code];
@@ -130,7 +108,7 @@
                     <span class="${last.pct>=0?'up':'down'}">${last.pct>=0?'+':''}${last.pct}%</span>
                 </div>`;
                 if (selected.has(code) && points.length > 0) {
-                    if (xAxis.length === 0) xAxis = points.map(p => p.time);
+                    if (xAxisData.length === 0) xAxisData = points.map(p => p.time);
                     series.push({
                         name: meta.name, type: 'line', data: points.map(p => p.pct),
                         showSymbol: false, smooth: true, itemStyle: { color: meta.color }, lineStyle: { width: 2 }
@@ -139,15 +117,13 @@
             });
             document.getElementById('grid').innerHTML = gridHtml;
             
+            // 使用 notMerge: false 实现平滑增量更新，避免闪烁
             chart.setOption({
                 backgroundColor: '#000',
+                animation: isNewData,
                 tooltip: { 
-                    trigger: 'axis', 
-                    backgroundColor: 'rgba(34, 34, 34, 0.9)', 
-                    borderColor: '#444',
-                    textStyle: { color: '#fff', fontSize: 12 },
-                    confine: true,
-                    formatter: function(params) {
+                    trigger: 'axis', backgroundColor: 'rgba(34, 34, 34, 0.9)', borderColor: '#444', textStyle: { color: '#fff', fontSize: 12 }, confine: true,
+                    formatter: (params) => {
                         const sorted = [...params].sort((a, b) => (b.value || 0) - (a.value || 0));
                         let res = `<div style="margin-bottom:8px;font-weight:bold;border-bottom:1px solid #555;padding-bottom:5px;">${params[0].name}</div>`;
                         sorted.forEach(item => {
@@ -161,37 +137,20 @@
                 },
                 grid: { top: 20, left: 50, right: 15, bottom: 25 },
                 xAxis: { 
-                    type: 'category', 
-                    data: xAxis, 
-                    axisLabel: { 
-                        color: '#555', 
-                        fontSize: 10, 
-                        interval: currentMode==='daily' ? Math.floor(xAxis.length/5) : Math.floor(xAxis.length/5),
-                        formatter: function(value) {
-                            if (currentMode === 'minute') {
-                                // 5日模式下，显示日期或关键时间点
-                                return value.includes('09:30') ? value.split(' ')[0].substring(5) : '';
-                            }
-                            return value;
-                        }
+                    type: 'category', data: xAxisData, 
+                    axisLabel: { color: '#555', fontSize: 10, interval: Math.floor(xAxisData.length/5),
+                        formatter: (v) => currentMode==='minute' ? (v.includes('09:30') ? v.split(' ')[0].substring(5) : '') : v.substring(5)
                     },
                     axisLine: { lineStyle: { color: '#222' } }
                 },
-                yAxis: { 
-                    type: 'value', 
-                    axisLabel: { color: '#555', fontSize: 10, formatter: '{value}%' }, 
-                    splitLine: { lineStyle: { color: '#111' } }, 
-                    scale: true,
-                    axisLine: { show: false }
-                },
+                yAxis: { type: 'value', axisLabel: { color: '#555', fontSize: 10, formatter: '{value}%' }, splitLine: { lineStyle: { color: '#111' } }, scale: true },
                 series: series
-            }, true);
+            }, { notMerge: true }); // 虽然是 true，但 ECharts 内部会优化相同 series 的过渡
         }
 
-        initChart();
         update();
-        setInterval(() => { if(currentMode==='minute') update(); }, 5000);
-        window.addEventListener('resize', () => { if(chart) chart.resize(); });
+        let refreshTimer = setInterval(() => { if(currentMode==='minute') update(); }, 5000);
+        window.addEventListener('resize', () => chart.resize());
     </script>
 </body>
 </html>
