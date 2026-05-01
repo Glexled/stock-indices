@@ -1,9 +1,18 @@
 {
   "version": 2,
+  "public": true,
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "api/$1.py"
+      "source": "/api/minute",
+      "destination": "/api/minute.py"
+    },
+    {
+      "source": "/api/kline",
+      "destination": "/api/kline.py"
+    },
+    {
+      "source": "/api/realtime",
+      "destination": "/api/realtime.py"
     },
     {
       "source": "/",
