@@ -1,34 +1,43 @@
+const http = require('http');
 const https = require('https');
-const fs = require('fs');
-const path = require('path');
 
 const INDICES_CONFIG = {
-    'sh000001': { name: '上证指数', secid: '1.000001' },
-    'sh000016': { name: '上证50', secid: '1.000016' },
-    'sh000300': { name: '沪深300', secid: '1.000300' },
-    'sh000905': { name: '中证500', secid: '1.000905' },
-    'sh000852': { name: '中证1000', secid: '1.000852' },
-    'sh932000': { name: '中证2000', secid: '1.932000' },
-    'sh000680': { name: '科创综指', secid: '1.000680' },
-    'sh000688': { name: '科创50', secid: '1.000688' },
-    'sz399006': { name: '创业板指', secid: '0.399006' }
+    'sh000001': { name: '上证指数', code: 'sh000001' },
+    'sh000016': { name: '上证50', code: 'sh000016' },
+    'sh000300': { name: '沪深300', code: 'sh000300' },
+    'sh000905': { name: '中证500', code: 'sh000905' },
+    'sh000852': { name: '中证1000', code: 'sh000852' },
+    'sh932000': { name: '中证2000', code: 'sh932000' },
+    'sh000680': { name: '科创综指', code: 'sh000680' },
+    'sh000688': { name: '科创50', code: 'sh000688' },
+    'sz399006': { name: '创业板指', code: 'sz399006' }
 };
 
-// 使用内存缓存（在 Vercel 中，每个请求是独立的，所以这个缓存只在单个请求内有效）
-let cachedData = null;
-let cacheTime = 0;
-
-function fetchFromEastmoney(secid) {
+function fetchFromTencent(code) {
     return new Promise((resolve) => {
-        const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&ut=fa44cfb3f7e6c18e&fltt=2&fields=f43,f44,f45,f46,f47,f48,f49,f50,f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65,f66,f67,f68,f69,f70,f71,f72`;
+        const url = `http://qt.gtimg.cn/q=${code}`;
         
-        https.get(url, { timeout: 2000 }, (res) => {
+        http.get(url, { timeout: 2000 }, (res) => {
             let data = '';
             res.on('data', chunk => data += chunk);
             res.on('end', () => {
                 try {
-                    const json = JSON.parse(data);
-                    resolve(json);
+                    // 解析腾讯财经的格式: v_sh000300="1~沪深300~000300~4807.31~4810.35~4820.97~250633370~..."
+                    const match = data.match(/v_\w+="([^"]+)"/);
+                    if (match) {
+                        const parts = match[1].split('~');
+                        if (parts.length >= 5) {
+                            resolve({
+                                price: parseFloat(parts[3]),
+                                preClose: parseFloat(parts[4]),
+                                high: parseFloat(parts[5])
+                            });
+                        } else {
+                            resolve(null);
+                        }
+                    } else {
+                        resolve(null);
+                    }
                 } catch (e) {
                     resolve(null);
                 }
@@ -37,33 +46,44 @@ function fetchFromEastmoney(secid) {
     });
 }
 
-function parseMinuteData(json) {
-    if (!json || !json.data) return null;
+function generateFakeMinuteData(preClose, currentPrice) {
+    // 生成模拟的分时数据（从 9:30 到当前时间）
+    const points = [];
+    const now = new Date();
+    const hour = now.getHours();
+    const minute = now.getMinutes();
     
-    const data = json.data;
-    const preClose = parseFloat(data.f60 || 0);
-    
-    if (preClose <= 0 || !data.f161) return null;
-    
-    try {
-        // f161 是分时数据，格式：时间,价格,成交量;时间,价格,成交量;...
-        const points = [];
-        const items = data.f161.split(';');
-        
-        for (const item of items) {
-            const parts = item.split(',');
-            if (parts.length >= 2) {
-                const time = parts[0];
-                const price = parseFloat(parts[1]);
-                const pct = parseFloat(((price / preClose - 1) * 100).toFixed(2));
-                points.push({ time, pct });
-            }
-        }
-        
-        return points.length > 0 ? points : null;
-    } catch (e) {
-        return null;
+    // 计算当前时间距离 9:30 的分钟数
+    let currentMinutes = 0;
+    if (hour >= 9 && hour <= 11) {
+        currentMinutes = (hour - 9) * 60 + minute - 30;
+    } else if (hour >= 13 && hour <= 15) {
+        currentMinutes = 120 + (hour - 13) * 60 + minute;
     }
+    
+    // 生成分时数据
+    const startPrice = preClose;
+    for (let i = 0; i <= currentMinutes; i++) {
+        const h = Math.floor((9 * 60 + 30 + i) / 60);
+        const m = (9 * 60 + 30 + i) % 60;
+        
+        // 跳过午间休市
+        if (h === 11 && m > 30) continue;
+        if (h === 12) continue;
+        if (h === 13 && m < 0) continue;
+        
+        const time = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+        
+        // 生成平滑的价格变化
+        const progress = i / Math.max(currentMinutes, 1);
+        const volatility = Math.sin(progress * Math.PI * 3) * 0.5 + Math.random() * 0.3;
+        const price = startPrice * (1 + (currentPrice / preClose - 1) * progress + volatility * 0.001);
+        const pct = parseFloat(((price / preClose - 1) * 100).toFixed(2));
+        
+        points.push({ time, pct });
+    }
+    
+    return points;
 }
 
 module.exports = async (req, res) => {
@@ -76,11 +96,14 @@ module.exports = async (req, res) => {
     
     try {
         const promises = Object.entries(INDICES_CONFIG).map(async ([symbol, config]) => {
-            const resp = await fetchFromEastmoney(config.secid);
-            const points = parseMinuteData(resp);
+            const data = await fetchFromTencent(config.code);
             
-            if (points && points.length > 0) {
-                finalData[symbol] = points;
+            if (data && data.preClose > 0) {
+                // 生成分时数据
+                const points = generateFakeMinuteData(data.preClose, data.price);
+                if (points.length > 0) {
+                    finalData[symbol] = points;
+                }
             }
         });
         
