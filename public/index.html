@@ -11,7 +11,6 @@
         
         .container { display: flex; flex-direction: column; height: 100vh; width: 100%; overflow: hidden; }
         
-        /* 顶部标题 */
         .header { 
             background: linear-gradient(135deg, #1a1f3a 0%, #0f1428 100%);
             padding: 12px 16px;
@@ -21,15 +20,41 @@
         .header h1 { margin: 0; font-size: 16px; font-weight: 600; }
         .header p { margin: 4px 0 0 0; font-size: 11px; color: #888; }
         
-        /* 图表区域 */
-        #chart { 
+        .tabs {
+            display: flex;
+            gap: 0;
+            padding: 0;
+            background: #0f1428;
+            border-bottom: 1px solid #1f2a4a;
+            flex-shrink: 0;
+        }
+        
+        .tab-btn {
+            flex: 1;
+            padding: 10px;
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 13px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s;
+        }
+        
+        .tab-btn.active {
+            color: #3b82f6;
+            border-bottom-color: #3b82f6;
+        }
+        
+        .tab-btn:hover { color: #fff; }
+        
+        #chart, #daily-chart { 
             flex: 1;
             width: 100%;
             background: #0a0e27;
             min-height: 250px;
         }
         
-        /* 指数列表 */
         .indices-list {
             display: flex;
             flex-direction: column;
@@ -52,10 +77,7 @@
             transition: background 0.2s;
         }
         
-        .index-item:hover {
-            background: #1a1f3a;
-        }
-        
+        .index-item:hover { background: #1a1f3a; }
         .index-item.active {
             background: #1a2a4a;
             border-left: 3px solid #3b82f6;
@@ -76,24 +98,25 @@
             flex-shrink: 0;
         }
         
-        .index-name {
-            font-size: 13px;
-            font-weight: 500;
-        }
-        
-        .index-value {
-            font-size: 14px;
-            font-weight: 600;
-            min-width: 50px;
-            text-align: right;
-        }
-        
+        .index-name { font-size: 13px; font-weight: 500; }
+        .index-value { font-size: 14px; font-weight: 600; min-width: 50px; text-align: right; }
         .value-up { color: #ef4444; }
         .value-down { color: #10b981; }
         
-        /* 响应式 */
+        .tab-content {
+            display: none;
+            flex: 1;
+            overflow: hidden;
+            flex-direction: column;
+        }
+        
+        .tab-content.active {
+            display: flex;
+        }
+        
         @media (max-width: 600px) {
             .header h1 { font-size: 14px; }
+            .tab-btn { font-size: 12px; padding: 8px; }
             .index-item { padding: 8px 10px; }
             .index-name { font-size: 12px; }
             .index-value { font-size: 13px; }
@@ -103,13 +126,24 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>当日分时对比</h1>
+            <h1>A股指数对比</h1>
             <p id="update-time">数据更新中...</p>
         </div>
         
-        <div id="chart"></div>
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('minute')">分时</button>
+            <button class="tab-btn" onclick="switchTab('daily')">日线</button>
+        </div>
         
-        <div class="indices-list" id="indices-list"></div>
+        <div id="minute-content" class="tab-content active">
+            <div id="chart"></div>
+            <div class="indices-list" id="indices-list"></div>
+        </div>
+        
+        <div id="daily-content" class="tab-content">
+            <div id="daily-chart"></div>
+            <div class="indices-list" id="daily-indices-list"></div>
+        </div>
     </div>
 
     <script>
@@ -127,28 +161,45 @@
 
         const DEFAULT_INDICES = ['sh000300', 'sh000016', 'sh000905', 'sh000852'];
         let selectedIndices = new Set(DEFAULT_INDICES);
+        let selectedDailyIndices = new Set(['sh000300', 'sh000016', 'sh000905', 'sh000852']);
         let rawData = {};
+        let dailyData = {};
         let chart = echarts.init(document.getElementById('chart'));
+        let dailyChart = echarts.init(document.getElementById('daily-chart'));
         let autoRefreshTimer = null;
+        let currentTab = 'minute';
 
-        // 检查是否在交易时间
+        function switchTab(tab) {
+            currentTab = tab;
+            document.querySelectorAll('.tab-btn').forEach((btn, i) => {
+                btn.classList.toggle('active', (i === 0 && tab === 'minute') || (i === 1 && tab === 'daily'));
+            });
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            document.getElementById(tab + '-content').classList.add('active');
+            
+            if (tab === 'daily') {
+                fetchDailyData();
+                setTimeout(() => dailyChart.resize(), 100);
+            } else {
+                setTimeout(() => chart.resize(), 100);
+            }
+        }
+
         function isMarketOpen() {
             const now = new Date();
             const h = now.getHours();
             const m = now.getMinutes();
             const day = now.getDay();
             
-            // 周一到周五
             if (day === 0 || day === 6) return false;
-            
-            // 9:30-11:30, 13:00-15:00
             const inAM = (h === 9 && m >= 30) || (h === 10) || (h === 11 && m <= 30);
             const inPM = (h >= 13 && h < 15) || (h === 15 && m === 0);
             
             return inAM || inPM;
         }
 
-        // 获取数据
         async function fetchData() {
             try {
                 const response = await fetch('/api/minute?t=' + new Date().getTime());
@@ -158,32 +209,51 @@
                 if (!json.ok) throw new Error('Data error');
                 
                 rawData = json.data || {};
-                updateUI();
+                if (currentTab === 'minute') updateUI();
                 
-                // 更新时间
                 const now = new Date();
                 const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
                 document.getElementById('update-time').textContent = `${timeStr} 更新`;
             } catch (error) {
                 console.error('Error fetching data:', error);
-                document.getElementById('update-time').textContent = '数据加载失败，请重新加载';
+                document.getElementById('update-time').textContent = '数据加载失败';
             }
         }
 
-        // 更新 UI
+        async function fetchDailyData() {
+            try {
+                const response = await fetch('/api/daily?t=' + new Date().getTime());
+                if (!response.ok) throw new Error('API error');
+                
+                const json = await response.json();
+                if (!json.ok) throw new Error('Data error');
+                
+                dailyData = json.data || {};
+                renderDailyChart();
+                renderDailyIndicesList();
+            } catch (error) {
+                console.error('Error fetching daily data:', error);
+            }
+        }
+
         function updateUI() {
             renderChart();
             renderIndicesList();
         }
 
-        // 获取指数最新涨幅
         function getLatestPct(code) {
             const points = rawData[code];
             if (!points || points.length === 0) return null;
             return points[points.length - 1].pct;
         }
 
-        // 渲染图表
+        function getDailyPct(code) {
+            const data = dailyData[code];
+            if (!data || data.length === 0) return null;
+            const latest = data[data.length - 1];
+            return latest.pct;
+        }
+
         function renderChart() {
             const timeSet = new Set();
             selectedIndices.forEach(code => {
@@ -192,26 +262,25 @@
             });
             const times = Array.from(timeSet).sort();
 
-            const series = Array.from(selectedIndices)
-                .map(code => {
-                    const meta = INDICES_META[code];
-                    const points = rawData[code] || [];
-                    const map = {};
-                    points.forEach(p => { map[p.time] = p.pct; });
-                    const values = times.map(t => map[t] ?? null);
-                    
-                    return {
-                        name: meta.name,
-                        type: 'line',
-                        data: values,
-                        smooth: true,
-                        symbol: 'none',
-                        lineStyle: { width: 2, color: meta.color },
-                        itemStyle: { color: meta.color },
-                        connectNulls: true,
-                        emphasis: { lineStyle: { width: 3 } }
-                    };
-                });
+            const series = Array.from(selectedIndices).map(code => {
+                const meta = INDICES_META[code];
+                const points = rawData[code] || [];
+                const map = {};
+                points.forEach(p => { map[p.time] = p.pct; });
+                const values = times.map(t => map[t] ?? null);
+                
+                return {
+                    name: meta.name,
+                    type: 'line',
+                    data: values,
+                    smooth: true,
+                    symbol: 'none',
+                    lineStyle: { width: 2, color: meta.color },
+                    itemStyle: { color: meta.color },
+                    connectNulls: true,
+                    emphasis: { lineStyle: { width: 3 } }
+                };
+            });
 
             chart.setOption({
                 backgroundColor: '#0a0e27',
@@ -240,46 +309,29 @@
                     },
                     formatter(params) {
                         if (!Array.isArray(params)) return '';
-                        const sorted = [...params]
-                            .filter(p => p.value !== null)
-                            .sort((a, b) => (b.value || 0) - (a.value || 0));
-                        
+                        const sorted = [...params].filter(p => p.value !== null).sort((a, b) => (b.value || 0) - (a.value || 0));
                         let html = `<div style="margin-bottom:6px;font-size:12px;color:#888">${params[0]?.axisValue || ''}</div>`;
                         sorted.forEach(p => {
                             const color = p.value >= 0 ? '#ef4444' : '#10b981';
-                            html += `<div style="display:flex;justify-content:space-between;gap:16px;margin:3px 0">
-                                <span><i style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${p.color};margin-right:5px"></i>${p.seriesName}</span>
-                                <span style="color:${color};font-weight:600">${p.value >= 0 ? '+' : ''}${p.value.toFixed(2)}%</span>
-                            </div>`;
+                            html += `<div style="display:flex;justify-content:space-between;gap:16px;margin:3px 0"><span>${p.seriesName}</span><span style="color:${color};font-weight:bold">${(p.value >= 0 ? '+' : '')}${p.value.toFixed(2)}%</span></div>`;
                         });
                         return html;
                     }
                 },
 
-                grid: { left: 48, right: 12, top: 40, bottom: 20 },
-
                 xAxis: {
                     type: 'category',
                     data: times,
+                    boundaryGap: false,
                     axisLine: { lineStyle: { color: '#1f2a4a' } },
-                    axisTick: { show: false },
-                    axisLabel: {
-                        color: '#666',
-                        fontSize: 10,
-                        interval: Math.max(0, Math.floor(times.length / 6) - 1)
-                    },
+                    axisLabel: { color: '#888', fontSize: 10 },
                     splitLine: { show: false }
                 },
 
                 yAxis: {
                     type: 'value',
                     axisLine: { show: false },
-                    axisTick: { show: false },
-                    axisLabel: {
-                        color: '#666',
-                        fontSize: 10,
-                        formatter: (v) => (v >= 0 ? '+' : '') + v.toFixed(1) + '%'
-                    },
+                    axisLabel: { color: '#888', fontSize: 10, formatter: (v) => (v >= 0 ? '+' : '') + v.toFixed(1) + '%' },
                     splitLine: { lineStyle: { color: '#1f2a4a', type: 'dashed' } }
                 },
 
@@ -287,9 +339,90 @@
             });
         }
 
-        // 渲染指数列表（按涨幅排序）
+        function renderDailyChart() {
+            const dates = [];
+            selectedDailyIndices.forEach(code => {
+                const data = dailyData[code] || [];
+                data.forEach(day => {
+                    if (!dates.includes(day.date)) dates.push(day.date);
+                });
+            });
+            dates.sort();
+
+            const series = Array.from(selectedDailyIndices).map(code => {
+                const meta = INDICES_META[code];
+                const data = dailyData[code] || [];
+                const map = {};
+                data.forEach(d => { map[d.date] = d.pct; });
+                const values = dates.map(d => map[d] ?? null);
+                
+                return {
+                    name: meta.name,
+                    type: 'line',
+                    data: values,
+                    smooth: true,
+                    symbol: 'circle',
+                    symbolSize: 4,
+                    lineStyle: { width: 2, color: meta.color },
+                    itemStyle: { color: meta.color },
+                    connectNulls: true,
+                    emphasis: { lineStyle: { width: 3 } }
+                };
+            });
+
+            dailyChart.setOption({
+                backgroundColor: '#0a0e27',
+                animation: true,
+                
+                legend: {
+                    data: Array.from(selectedDailyIndices).map(c => INDICES_META[c].name),
+                    top: 8,
+                    left: 8,
+                    textStyle: { color: '#888', fontSize: 11 },
+                    icon: 'circle',
+                    itemWidth: 8,
+                    itemHeight: 8
+                },
+
+                tooltip: {
+                    trigger: 'axis',
+                    backgroundColor: 'rgba(10, 14, 39, 0.95)',
+                    borderColor: '#2a3a5a',
+                    borderWidth: 1,
+                    textStyle: { color: '#fff', fontSize: 12 },
+                    formatter(params) {
+                        if (!Array.isArray(params)) return '';
+                        const sorted = [...params].filter(p => p.value !== null).sort((a, b) => (b.value || 0) - (a.value || 0));
+                        let html = `<div style="margin-bottom:6px;font-size:12px;color:#888">${params[0]?.axisValue || ''}</div>`;
+                        sorted.forEach(p => {
+                            const color = p.value >= 0 ? '#ef4444' : '#10b981';
+                            html += `<div style="display:flex;justify-content:space-between;gap:16px;margin:3px 0"><span>${p.seriesName}</span><span style="color:${color};font-weight:bold">${(p.value >= 0 ? '+' : '')}${p.value.toFixed(2)}%</span></div>`;
+                        });
+                        return html;
+                    }
+                },
+
+                xAxis: {
+                    type: 'category',
+                    data: dates,
+                    boundaryGap: false,
+                    axisLine: { lineStyle: { color: '#1f2a4a' } },
+                    axisLabel: { color: '#888', fontSize: 10 },
+                    splitLine: { show: false }
+                },
+
+                yAxis: {
+                    type: 'value',
+                    axisLine: { show: false },
+                    axisLabel: { color: '#888', fontSize: 10, formatter: (v) => (v >= 0 ? '+' : '') + v.toFixed(1) + '%' },
+                    splitLine: { lineStyle: { color: '#1f2a4a', type: 'dashed' } }
+                },
+
+                series: series
+            });
+        }
+
         function renderIndicesList() {
-            // 获取所有指数的涨幅数据
             const indicesData = Object.entries(INDICES_META)
                 .map(([code, meta]) => ({
                     code,
@@ -297,28 +430,52 @@
                     color: meta.color,
                     pct: getLatestPct(code) || 0
                 }))
-                .sort((a, b) => b.pct - a.pct); // 按涨幅从高到低排序
+                .sort((a, b) => b.pct - a.pct);
 
-            const html = indicesData
-                .map(item => {
-                    const isActive = selectedIndices.has(item.code);
-                    const valueClass = item.pct >= 0 ? 'value-up' : 'value-down';
-                    const sign = item.pct >= 0 ? '+' : '';
-                    
-                    return `<div class="index-item ${isActive ? 'active' : ''}" onclick="toggleIndex('${item.code}')">
-                        <div class="index-info">
-                            <div class="index-dot" style="background: ${item.color}"></div>
-                            <div class="index-name">${item.name}</div>
-                        </div>
-                        <div class="index-value ${valueClass}">${sign}${item.pct.toFixed(2)}%</div>
-                    </div>`;
-                })
-                .join('');
+            const html = indicesData.map(item => {
+                const isActive = selectedIndices.has(item.code);
+                const valueClass = item.pct >= 0 ? 'value-up' : 'value-down';
+                const sign = item.pct >= 0 ? '+' : '';
+                
+                return `<div class="index-item ${isActive ? 'active' : ''}" onclick="toggleIndex('${item.code}')">
+                    <div class="index-info">
+                        <div class="index-dot" style="background: ${item.color}"></div>
+                        <div class="index-name">${item.name}</div>
+                    </div>
+                    <div class="index-value ${valueClass}">${sign}${item.pct.toFixed(2)}%</div>
+                </div>`;
+            }).join('');
             
             document.getElementById('indices-list').innerHTML = html;
         }
 
-        // 切换指数
+        function renderDailyIndicesList() {
+            const indicesData = Object.entries(INDICES_META)
+                .map(([code, meta]) => ({
+                    code,
+                    name: meta.name,
+                    color: meta.color,
+                    pct: getDailyPct(code) || 0
+                }))
+                .sort((a, b) => b.pct - a.pct);
+
+            const html = indicesData.map(item => {
+                const isActive = selectedDailyIndices.has(item.code);
+                const valueClass = item.pct >= 0 ? 'value-up' : 'value-down';
+                const sign = item.pct >= 0 ? '+' : '';
+                
+                return `<div class="index-item ${isActive ? 'active' : ''}" onclick="toggleDailyIndex('${item.code}')">
+                    <div class="index-info">
+                        <div class="index-dot" style="background: ${item.color}"></div>
+                        <div class="index-name">${item.name}</div>
+                    </div>
+                    <div class="index-value ${valueClass}">${sign}${item.pct.toFixed(2)}%</div>
+                </div>`;
+            }).join('');
+            
+            document.getElementById('daily-indices-list').innerHTML = html;
+        }
+
         function toggleIndex(code) {
             if (selectedIndices.has(code)) {
                 if (selectedIndices.size > 1) selectedIndices.delete(code);
@@ -328,7 +485,16 @@
             updateUI();
         }
 
-        // 自动刷新
+        function toggleDailyIndex(code) {
+            if (selectedDailyIndices.has(code)) {
+                if (selectedDailyIndices.size > 1) selectedDailyIndices.delete(code);
+            } else {
+                selectedDailyIndices.add(code);
+            }
+            renderDailyChart();
+            renderDailyIndicesList();
+        }
+
         function startAutoRefresh() {
             if (autoRefreshTimer) clearInterval(autoRefreshTimer);
             
@@ -339,16 +505,21 @@
                     document.getElementById('update-time').textContent = '市场已收盘';
                     clearInterval(autoRefreshTimer);
                 }
-            }, 20000); // 20秒
+            }, 20000);
         }
 
-        // 初始化
         document.addEventListener('DOMContentLoaded', () => {
             fetchData();
+            fetchDailyData();
             startAutoRefresh();
             
-            // 窗口大小变化时重新绘制图表
-            window.addEventListener('resize', () => chart.resize());
+            window.addEventListener('resize', () => {
+                if (currentTab === 'minute') {
+                    chart.resize();
+                } else {
+                    dailyChart.resize();
+                }
+            });
         });
     </script>
 </body>
