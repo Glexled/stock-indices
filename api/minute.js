@@ -1,5 +1,6 @@
 const https = require('https');
-const http = require('http');
+const fs = require('fs');
+const path = require('path');
 
 const INDICES_CONFIG = {
     'sh000001': { name: '上证指数', secid: '1.000001' },
@@ -13,11 +14,15 @@ const INDICES_CONFIG = {
     'sz399006': { name: '创业板指', secid: '0.399006' }
 };
 
+// 使用内存缓存（在 Vercel 中，每个请求是独立的，所以这个缓存只在单个请求内有效）
+let cachedData = null;
+let cacheTime = 0;
+
 function fetchFromEastmoney(secid) {
     return new Promise((resolve) => {
-        const url = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58`;
+        const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&ut=fa44cfb3f7e6c18e&fltt=2&fields=f43,f44,f45,f46,f47,f48,f49,f50,f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65,f66,f67,f68,f69,f70,f71,f72`;
         
-        https.get(url, { timeout: 3000 }, (res) => {
+        https.get(url, { timeout: 2000 }, (res) => {
             let data = '';
             res.on('data', chunk => data += chunk);
             res.on('end', () => {
@@ -32,43 +37,56 @@ function fetchFromEastmoney(secid) {
     });
 }
 
+function parseMinuteData(json) {
+    if (!json || !json.data) return null;
+    
+    const data = json.data;
+    const preClose = parseFloat(data.f60 || 0);
+    
+    if (preClose <= 0 || !data.f161) return null;
+    
+    try {
+        // f161 是分时数据，格式：时间,价格,成交量;时间,价格,成交量;...
+        const points = [];
+        const items = data.f161.split(';');
+        
+        for (const item of items) {
+            const parts = item.split(',');
+            if (parts.length >= 2) {
+                const time = parts[0];
+                const price = parseFloat(parts[1]);
+                const pct = parseFloat(((price / preClose - 1) * 100).toFixed(2));
+                points.push({ time, pct });
+            }
+        }
+        
+        return points.length > 0 ? points : null;
+    } catch (e) {
+        return null;
+    }
+}
+
 module.exports = async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     
     const finalData = {};
-    const updatedTime = new Date().toLocaleTimeString('zh-CN');
+    const now = new Date();
+    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
     
     try {
-        // 并发获取所有指数
         const promises = Object.entries(INDICES_CONFIG).map(async ([symbol, config]) => {
             const resp = await fetchFromEastmoney(config.secid);
+            const points = parseMinuteData(resp);
             
-            if (resp && resp.data && resp.data.trends && resp.data.trends.length > 0) {
-                const preClose = parseFloat(resp.data.preClose || 0);
-                if (preClose > 0) {
-                    const points = [];
-                    for (const trend of resp.data.trends) {
-                        try {
-                            const parts = trend.split(',');
-                            if (parts.length >= 3) {
-                                const timeStr = parts[0].includes(' ') ? parts[0].split(' ')[1].substring(0, 5) : parts[0].substring(0, 5);
-                                const price = parseFloat(parts[2]);
-                                const pct = parseFloat(((price / preClose - 1) * 100).toFixed(2));
-                                points.push({ time: timeStr, pct });
-                            }
-                        } catch (e) {}
-                    }
-                    if (points.length > 0) {
-                        finalData[symbol] = points;
-                    }
-                }
+            if (points && points.length > 0) {
+                finalData[symbol] = points;
             }
         });
         
         await Promise.race([
             Promise.all(promises),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000))
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 4000))
         ]);
     } catch (e) {
         console.error('Error:', e.message);
@@ -77,7 +95,7 @@ module.exports = async (req, res) => {
     res.status(200).json({
         ok: true,
         data: finalData,
-        updated: updatedTime,
+        updated: timeStr,
         count: Object.keys(finalData).length
     });
 };
